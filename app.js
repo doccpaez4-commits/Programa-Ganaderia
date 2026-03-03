@@ -947,14 +947,23 @@ function renderDashboardUpdates(nac, vac, insem) {
         });
     }
 
-    // 2. PRÓXIMOS 2 PARTOS (Sin importar la fecha)
+    // 2. PRÓXIMOS 2 PARTOS (Sin importar la fecha, usando el último registro por animal)
     if (insem?.filas) {
-        const proximosPartos = insem.filas
-            .filter(f => f.estado === 'Preñada' && f.fechaEstimadaParto)
-            .map(f => ({
-                ...f,
-                fParto: parseAnyDate(f.fechaEstimadaParto)
-            }))
+        // Group to get only the latest "Preñada" status per animal
+        const latestPregnancy = {};
+        insem.filas.forEach(f => {
+            if (f.estado === 'Preñada' && f.fechaEstimadaParto) {
+                const d = new Date(f.fecha);
+                if (!latestPregnancy[f.animal] || d > new Date(latestPregnancy[f.animal].fecha)) {
+                    latestPregnancy[f.animal] = {
+                        ...f,
+                        fParto: parseAnyDate(f.fechaEstimadaParto)
+                    };
+                }
+            }
+        });
+
+        const proximosPartos = Object.values(latestPregnancy)
             .filter(f => f.fParto >= hoy) // Solo futuros
             .sort((a, b) => a.fParto - b.fParto)
             .slice(0, 2); // Solo los 2 más cercanos
@@ -966,7 +975,7 @@ function renderDashboardUpdates(nac, vac, insem) {
                 title: `Próximo parto: ${f.animal}`,
                 desc: `Fecha estimada: ${formatDate(f.fParto)} (${diff} días restantes)`,
                 type: 'warning',
-                date: f.fParto
+                date: f.fParto // This helps prioritizing "🤰" in the news feed
             });
         });
     }
@@ -1048,9 +1057,10 @@ function loadGestacion(insem) {
         const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         return { ...f, fParto, diasRestantes };
     }).sort((a, b) => {
+        // Strict chronological order for gestation table (next to calve first)
         if (isNaN(a.fParto)) return 1;
         if (isNaN(b.fParto)) return -1;
-        return a.diasRestantes - b.diasRestantes;
+        return a.fParto - b.fParto; // Show closest to calving first
     });
 
     preneces.forEach(p => {
@@ -1103,7 +1113,7 @@ function loadGestacion(insem) {
             <td>${diasBadge}</td>
             <td>${statusBadge}</td>
             <td>
-                <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditInsemModal('${p.id}')" title="Editar">📝</button>
+                <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditInsemModal('${p.id || ''}')" title="Editar">📝</button>
             </td>
         </tr>`;
     });
@@ -2222,6 +2232,31 @@ function renderRentabilidad() {
     const dynamicData = JSON.parse(JSON.stringify(data));
     if (dynamicData.porCategoria) dynamicData.porCategoria['Concentrado'] = totalCostoConcentradoAudit;
     buildGastosCategoriaChart(dynamicData);
+
+    // Populate Per Cow Production Table (Requested/Noticed Empty)
+    const perCowTbody = document.getElementById('per-cow-tbody');
+    if (perCowTbody) {
+        const lactantesList = (currentHerdCenso || []).filter(a => a.estado.includes('LACTANDO'));
+        // Sort by production descending (top performers first) or animal name
+        perCowTbody.innerHTML = lactantesList.map(animal => {
+            const prodInfo = data.produccionPorAnimal?.[animal.nombre] || { total: 0, count: 0 };
+            const promedio = prodInfo.count > 0 ? (prodInfo.total / prodInfo.count).toFixed(1) : '0.0';
+            const kgDiaInput = document.getElementById(`diet-kg-${animal.nombre}`);
+            const kgDia = kgDiaInput ? parseFloat(kgDiaInput.value) : 0;
+            const costoConc = (kgDia * daysInMonth * precioKg);
+            const ingreso = prodInfo.total * precioLitro;
+            const balance = ingreso - costoConc;
+
+            return `<tr>
+                <td><strong>${getAnimalEmoji(animal.nombre)} ${animal.nombre}</strong></td>
+                <td>${prodInfo.total.toFixed(1)} L</td>
+                <td>${promedio} L/día</td>
+                <td>$${formatNumber(costoConc)}</td>
+                <td>$${formatNumber(ingreso)}</td>
+                <td style="color:${balance >= 0 ? '#22c55e' : '#ef4444'}; font-weight:bold;">$${formatNumber(balance)}</td>
+            </tr>`;
+        }).join('');
+    }
 }
 
 async function updateConcentradoVaca(animal, value) {
@@ -2470,37 +2505,14 @@ async function loadHistorial() {
     const nac = await fetchFromSheets('nacimientos');
     const celos = await fetchFromSheets('celos');
 
-    // Celos table
-    const celoTbody = document.getElementById('historial-celo-tbody');
-    if (celoTbody) {
-        if (!celos?.filas?.length) {
-            celoTbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:30px;color:var(--text-muted);">Sin registros</td></tr>';
-        } else {
-            celoTbody.innerHTML = celos.filas.map(f => {
-                const badgeClass = f.intensidad === 'Fuerte' ? 'badge-danger' :
-                    f.intensidad === 'Leve' ? 'badge-success' : 'badge-warning';
-                return `<tr>
-          <td>${formatDate(f.fecha)}</td>
-          <td>${f.animal}</td>
-          <td><span class="badge-pamora ${badgeClass}">${f.intensidad}</span></td>
-          <td>${f.duracion} h</td>
-          <td>${f.accionItem}</td>
-          <td>${f.observaciones || '—'}</td>
-          <td>
-            <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem; background:#ef4444;" onclick="requestQuickDelete('eventos','${f.id || ''}','Celo ${f.animal}')" title="Borrar">🗑</button>
-          </td>
-        </tr>`;
-            }).join('');
-        }
-    }
-
-    // Inseminations table
+    // Inseminations table (Newest first)
     const insemTbody = document.getElementById('historial-insem-tbody');
     if (insemTbody) {
         if (!insem?.filas?.length) {
             insemTbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:30px;color:var(--text-muted);">Sin registros</td></tr>';
         } else {
-            insemTbody.innerHTML = insem.filas.map(f => {
+            const sortedInsem = [...insem.filas].sort((a, b) => parseAnyDate(b.fecha) - parseAnyDate(a.fecha));
+            insemTbody.innerHTML = sortedInsem.map(f => {
                 const badgeClass = f.estado === 'Preñada' ? 'badge-success' :
                     f.estado === 'No Preñada' ? 'badge-danger' : 'badge-warning';
                 return `<tr>
@@ -2521,13 +2533,14 @@ async function loadHistorial() {
         }
     }
 
-    // Births table
+    // Births table (Newest first)
     const nacTbody = document.getElementById('historial-nac-tbody');
     if (nacTbody) {
         if (!nac?.filas?.length) {
             nacTbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:30px;color:var(--text-muted);">Sin registros</td></tr>';
         } else {
-            nacTbody.innerHTML = nac.filas.map((f, i) => {
+            const sortedNac = [...nac.filas].sort((a, b) => parseAnyDate(b.fecha) - parseAnyDate(a.fecha));
+            nacTbody.innerHTML = sortedNac.map((f, i) => {
                 const sexBadge = f.sexo === 'Hembra' ?
                     '<span class="badge" style="background:#fce7f3; color:#db2777; border:1px solid #fbcfe8;">♀ Hembra</span>' :
                     f.sexo === 'Macho' ?
@@ -2551,6 +2564,31 @@ async function loadHistorial() {
                     </div>
                   </td>
                 </tr>`;
+            }).join('');
+        }
+    }
+
+    // Celos table (Newest first)
+    const celoTbody = document.getElementById('historial-celo-tbody');
+    if (celoTbody) {
+        if (!celos?.filas?.length) {
+            celoTbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:30px;color:var(--text-muted);">Sin registros</td></tr>';
+        } else {
+            const sortedCelos = [...celos.filas].sort((a, b) => parseAnyDate(b.fecha) - parseAnyDate(a.fecha));
+            celoTbody.innerHTML = sortedCelos.map(f => {
+                const badgeClass = f.intensidad === 'Fuerte' ? 'badge-danger' :
+                    f.intensidad === 'Leve' ? 'badge-success' : 'badge-warning';
+                return `<tr>
+          <td>${formatDate(f.fecha)}</td>
+          <td>${f.animal}</td>
+          <td><span class="badge-pamora ${badgeClass}">${f.intensidad}</span></td>
+          <td>${f.duracion} h</td>
+          <td>${f.accionItem}</td>
+          <td>${f.observaciones || '—'}</td>
+          <td>
+            <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem; background:#ef4444;" onclick="requestQuickDelete('eventos','${f.id || ''}','Celo ${f.animal}')" title="Borrar">🗑</button>
+          </td>
+        </tr>`;
             }).join('');
         }
     }
