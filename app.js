@@ -804,7 +804,8 @@ async function fetchFromSheets(accion, params = {}) {
                 'inseminaciones': 'eventos',
                 'nacimientos': 'eventos',
                 'celos': 'eventos',
-                'rentabilidad': 'produccion' // simplistic for now
+                'vacunaciones': 'vacunaciones', // RESTORED missing mapping
+                'rentabilidad': 'produccion'
             };
             const coll = collectionMap[accion];
             if (!coll) return getDemoData(accion);
@@ -2741,8 +2742,8 @@ function getDemoData(accion) {
         case 'nacimientos':
             return {
                 filas: [
-                    { fecha: '2026-02-12', madre: 'Yohana', cria: 'Esperanza', sexo: 'Hembra', peso: 32, observaciones: 'Parto normal, sin complicaciones' },
-                    { fecha: '2026-02-20', madre: 'Moli', cria: 'Trueno', sexo: 'Macho', peso: 35, observaciones: 'Parto asistido' }
+                    { id: 'demo-nac-1', fecha: '2026-02-12', madre: 'Yohana', cria: 'Esperanza', sexo: 'Hembra', peso: 32, observaciones: 'Parto normal, sin complicaciones' },
+                    { id: 'demo-nac-2', fecha: '2026-02-20', madre: 'Moli', cria: 'Trueno', sexo: 'Macho', peso: 35, observaciones: 'Parto asistido' }
                 ]
             };
 
@@ -3190,13 +3191,12 @@ let currentEditInsemId = null;
 
 function openEditVacuModal(id) {
     console.log('Opening edit vacuum modal for ID:', id);
-    if (!id) {
-        showToast('ID de registro no válido', 'warning');
+    if (!id || id === 'undefined' || id === 'null') {
+        showToast('ID de registro no válido para Vacuna', 'warning');
         return;
     }
     if (id.startsWith('demo-')) {
         showToast('Registro de demostración: No se puede editar físicamente', 'info');
-        // We still show the modal for visual verification
         const modal = document.getElementById('modal-edit-vacunacion');
         if (modal) modal.style.display = 'flex';
         return;
@@ -3209,15 +3209,17 @@ function openEditVacuModal(id) {
         currentEditVacuId = id;
         db.collection('vacunaciones').doc(id).get().then(doc => {
             if (!doc.exists) {
-                showToast('No se encontró el registro en Firebase', 'warning');
+                showToast('No se encontró el registro de vacuna en Firebase', 'warning');
                 return;
             }
             const d = doc.data();
-            document.getElementById('edit-vacu-id').value = id;
-            document.getElementById('edit-vacu-fecha').value = d.fecha || '';
-            document.getElementById('edit-vacu-tipo').value = d.tipo || 'Vacuna';
-            document.getElementById('edit-vacu-producto').value = d.tratamiento || '';
-            document.getElementById('edit-vacu-obs').value = d.observaciones || '';
+            const idInput = document.getElementById('edit-vacu-id');
+            if (idInput) idInput.value = id;
+
+            if (document.getElementById('edit-vacu-fecha')) document.getElementById('edit-vacu-fecha').value = d.fecha || '';
+            if (document.getElementById('edit-vacu-tipo')) document.getElementById('edit-vacu-tipo').value = d.tipo || 'Vacuna';
+            if (document.getElementById('edit-vacu-producto')) document.getElementById('edit-vacu-producto').value = d.tratamiento || '';
+            if (document.getElementById('edit-vacu-obs')) document.getElementById('edit-vacu-obs').value = d.observaciones || '';
 
             // Populate animal select
             const sel = document.getElementById('edit-vacu-animal');
@@ -3263,8 +3265,8 @@ async function saveEditVacunacion() {
 
 function openEditInsemModal(id) {
     console.log('Opening edit insem modal for ID:', id);
-    if (!id) {
-        showToast('ID de registro no válido', 'warning');
+    if (!id || id === 'undefined' || id === 'null') {
+        showToast('ID de registro no válido para Inseminación', 'warning');
         return;
     }
     if (id.startsWith('demo-')) {
@@ -3285,11 +3287,13 @@ function openEditInsemModal(id) {
                 return;
             }
             const d = doc.data();
-            document.getElementById('edit-insem-id').value = id;
-            document.getElementById('edit-insem-fecha').value = d.fecha || '';
-            document.getElementById('edit-insem-estado').value = d.estado || 'Pendiente';
-            document.getElementById('edit-insem-toro').value = d.toro || '';
-            document.getElementById('edit-insem-parto').value = d.fechaEstimadaParto || '';
+            const idInput = document.getElementById('edit-insem-id');
+            if (idInput) idInput.value = id;
+
+            if (document.getElementById('edit-insem-fecha')) document.getElementById('edit-insem-fecha').value = d.fecha || '';
+            if (document.getElementById('edit-insem-estado')) document.getElementById('edit-insem-estado').value = d.estado || 'Pendiente';
+            if (document.getElementById('edit-insem-toro')) document.getElementById('edit-insem-toro').value = d.toro || '';
+            if (document.getElementById('edit-insem-parto')) document.getElementById('edit-insem-parto').value = d.fechaEstimadaParto || '';
 
             const sel = document.getElementById('edit-insem-animal');
             if (sel) {
@@ -3340,6 +3344,16 @@ async function saveEditInseminacion() {
 
 function openEditNacModal(id) {
     console.log('Opening edit nacim modal for ID:', id);
+    if (!id || id === 'undefined' || id === 'null') {
+        showToast('ID de registro no válido para Nacimiento', 'warning');
+        return;
+    }
+    if (id.startsWith('demo-')) {
+        showToast('Registro de demostración: No se puede editar físicamente', 'info');
+        const modal = document.getElementById('modal-edit-nacimiento');
+        if (modal) modal.style.display = 'flex';
+        return;
+    }
     if (!db) {
         showToast('Base de datos no disponible', 'error');
         return;
@@ -3347,15 +3361,17 @@ function openEditNacModal(id) {
     try {
         db.collection('eventos').doc(id).get().then(doc => {
             if (!doc.exists) {
-                showToast('Registro de nacimiento no encontrado', 'warning');
+                showToast('Registro de nacimiento no encontrado en Firebase', 'warning');
                 return;
             }
             const d = doc.data();
-            document.getElementById('edit-nac-id').value = id;
-            document.getElementById('edit-nac-fecha').value = d.fecha || '';
-            document.getElementById('edit-nac-cria').value = d.cria || '';
-            document.getElementById('edit-nac-sexo').value = d.sexo || 'Hembra';
-            document.getElementById('edit-nac-peso').value = d.peso || '';
+            const idInput = document.getElementById('edit-nac-id');
+            if (idInput) idInput.value = id;
+
+            if (document.getElementById('edit-nac-fecha')) document.getElementById('edit-nac-fecha').value = d.fecha || '';
+            if (document.getElementById('edit-nac-cria')) document.getElementById('edit-nac-cria').value = d.cria || '';
+            if (document.getElementById('edit-nac-sexo')) document.getElementById('edit-nac-sexo').value = d.sexo || 'Hembra';
+            if (document.getElementById('edit-nac-peso')) document.getElementById('edit-nac-peso').value = d.peso || '';
 
             const sel = document.getElementById('edit-nac-madre');
             if (sel) {
