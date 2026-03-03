@@ -190,6 +190,12 @@ async function bootApp(userName) {
     checkPartoAlerts();
 
     updateSyncProgress(100, 'Sincronización terminada ✅');
+
+    // Hide overlay only when EVERYTHING is done
+    setTimeout(() => {
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) overlay.style.display = 'none';
+    }, 1200);
 }
 
 function handleLogin(e) {
@@ -264,13 +270,6 @@ function showApp(userName) {
     document.getElementById('app-layout').classList.add('active');
     const nameEl = document.getElementById('user-name');
     if (nameEl) nameEl.textContent = userName || '';
-
-    // Update sync status
-    const syncText = document.querySelector('#loading-overlay p');
-    if (syncText) syncText.textContent = '✅ Sincronizado';
-    setTimeout(() => {
-        document.getElementById('loading-overlay').style.display = 'none';
-    }, 800);
 
     if (isDemo) showToast('Modo demo — datos de ejemplo', 'info');
 }
@@ -1165,8 +1164,14 @@ async function loadHerdInventory() {
 
     try {
         updateSyncProgress(75, 'Obteniendo metadatos del hato...');
-        // 1. Get ALL metadata (category, breed, etc.)
-        const metaSnap = await db.collection('hato_detalle').get();
+
+        // Use a 10s timeout for Firestore queries to avoid infinite hang
+        const fetchPromise = db.collection('hato_detalle').get();
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout Firestore')), 10000));
+
+        const metaSnap = await Promise.race([fetchPromise, timeoutPromise]);
+
+        updateSyncProgress(85, 'Procesando animales...');
         herdInventoryMeta = {};
         const allAnimalNamesInMeta = [];
         metaSnap.forEach(doc => {
@@ -1505,7 +1510,7 @@ async function seedInitialHerd() {
                 idAnimal: a.id,
                 nombre: a.name,
                 raza: a.breed,
-                fechaNacimiento: a.জন্ম || '',
+                fechaNacimiento: a.birth || '',
                 padre: a.father,
                 madre: a.mother,
                 categoria: a.cat,
@@ -1834,10 +1839,6 @@ async function loadRentabilidad() {
     };
 
     setStatText('rentabilidad-periodo', 'Cargando datos contables...');
-    const data = await fetchFromSheets('rentabilidad', params);
-    lastRentabilidadData = data;
-
-    buildDietInputs();
 
     if (db) {
         const id = `${params.anio}-${params.mes}`;
@@ -1859,10 +1860,18 @@ async function loadRentabilidad() {
         } catch (e) { console.error('Error loading config:', e); }
     }
     updatePrecioPorKg();
+
+    // Fetch production data for the month
+    const mesData = await fetchFromSheets('produccion_mes', params);
+    lastRentabilidadData = mesData;
     recalcRentabilidad();
 }
 
 function recalcRentabilidad() {
+    renderRentabilidad();
+}
+
+function renderRentabilidad() {
     if (!lastRentabilidadData) return;
     const data = lastRentabilidadData;
 
@@ -1930,17 +1939,8 @@ function recalcRentabilidad() {
 
 async function updateConcentradoVaca(animal, value) {
     const val = parseFloat(value) || 0;
-    // We already have diet inputs in the grid, so we just trigger a recalc
-    // If we want to persist immediately, we use the guardarParametrosRentabilidad pattern
     recalcRentabilidad();
 }
-
-function recalcRentabilidad() {
-    renderRentabilidad();
-}
-
-// Ensure renderRentabilidad is NOT duplicated. Wait, I replaced loadRentabilidad earlier.
-// Let's just make sure there is only ONE recalcRentabilidad and it works.
 
 function buildProduccionAnimalChart(data) {
     const ctx = document.getElementById('chart-produccion-animal');
@@ -1949,8 +1949,6 @@ function buildProduccionAnimalChart(data) {
 
     const labels = ANIMALES;
     const totals = ANIMALES.map(a => data.produccionPorAnimal?.[a]?.total || 0);
-    const promedios = ANIMALES.map(a => data.produccionPorAnimal?.[a]?.promedioDiario || 0);
-
     const colors = ['#4ade80', '#22c55e', '#16a34a', '#15803d', '#86efac', '#6fbf3a', '#5a9a30', '#3a6a1e'];
 
     ctx._chart = new Chart(ctx, {
@@ -1975,7 +1973,6 @@ function buildCostoVsVentaChart(data) {
     if (!ctx) return;
     if (ctx._chart) ctx._chart.destroy();
 
-    // Simulated daily data points (for demo)
     const dias = data.diasRegistrados || 15;
     const costoLabels = [];
     const costoData = [];
