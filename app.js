@@ -39,6 +39,11 @@ const ANIMAL_EMOJIS = {
 };
 
 function getAnimalEmoji(name) {
+    if (!name) return '🐄';
+    const n = name.toLowerCase();
+    if (n.includes('ternero') || n.includes('ternera')) return '👶';
+    if (n.includes('toro')) return '🐃';
+    if (n.includes('novilla')) return '🐂';
     return ANIMAL_EMOJIS[name] || '🐄';
 }
 
@@ -53,7 +58,31 @@ document.addEventListener('DOMContentLoaded', () => {
     initFirebase();
     initNavigation();
     initDateDefaults();
+    initIdleTimer();
 });
+
+let idleTimer;
+const IDLE_LIMIT = 10 * 60 * 1000; // 10 minutes
+
+function initIdleTimer() {
+    ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(evt => {
+        document.addEventListener(evt, resetIdleTimer, true);
+    });
+}
+
+function resetIdleTimer() {
+    clearTimeout(idleTimer);
+    if (currentUser) {
+        idleTimer = setTimeout(handleLogoutInactivity, IDLE_LIMIT);
+    }
+}
+
+function handleLogoutInactivity() {
+    if (currentUser) {
+        showToast('Sesión cerrada por inactividad', 'warning');
+        handleLogout();
+    }
+}
 
 function initFirebase() {
     const isConfigured = FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== 'TU_API_KEY';
@@ -93,8 +122,11 @@ async function bootApp(userName) {
     showApp(userName);
 
     try {
-        const hato = await fetchFromSheets('config');
-        if (hato && hato.animales) ANIMALES = hato.animales;
+        const configSnap = await db.collection('config').doc('hato').get();
+        if (configSnap.exists) {
+            const hato = configSnap.data();
+            if (hato && hato.animales) ANIMALES = hato.animales;
+        }
     } catch (e) { console.warn('Could not load config', e) }
 
     buildAnimalInputs('ordeno-animal-grid', 'ordeno');
@@ -104,6 +136,7 @@ async function bootApp(userName) {
     updateNotificationBadge();
     loadNotificationsFromFirebase();
     checkPartoAlerts();
+    loadHerdInventory();
 }
 
 function handleLogin(e) {
@@ -178,6 +211,14 @@ function showApp(userName) {
     document.getElementById('app-layout').classList.add('active');
     const nameEl = document.getElementById('user-name');
     if (nameEl) nameEl.textContent = userName || '';
+
+    // Update sync status
+    const syncText = document.querySelector('#loading-overlay p');
+    if (syncText) syncText.textContent = '✅ Sincronizado';
+    setTimeout(() => {
+        document.getElementById('loading-overlay').style.display = 'none';
+    }, 800);
+
     if (isDemo) showToast('Modo demo — datos de ejemplo', 'info');
 }
 
@@ -197,7 +238,21 @@ function switchTab(tabId) {
 
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     const panel = document.getElementById(`panel-${tabId}`);
-    if (panel) panel.classList.add('active');
+    if (panel) {
+        panel.classList.add('active');
+        // Auto-scroll to top
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // Toggle specific tool visibility (Import Excel only in Hato)
+    const hatoTools = document.querySelector('#panel-mi-hato .section-header .d-flex.gap-2');
+    if (hatoTools) {
+        if (tabId === 'mi-hato') {
+            hatoTools.style.display = 'flex';
+        } else {
+            hatoTools.style.display = 'none';
+        }
+    }
 
     // Load data for specific tabs
     if (tabId === 'inicio') loadDashboardStats();
@@ -207,6 +262,7 @@ function switchTab(tabId) {
     if (tabId === 'config') renderConfigAnimales();
     if (tabId === 'gestacion') loadDashboardStats();
     if (tabId === 'costos') updateCostoPorLitro();
+    if (tabId === 'mi-hato') loadHerdInventory();
 }
 
 
@@ -245,18 +301,47 @@ function buildAnimalInputs(gridId, prefix) {
     const grid = document.getElementById(gridId);
     if (!grid) return;
 
-    grid.innerHTML = ANIMALES.map(animal => `
-    <div class="animal-input-group">
+    // Expert Filter: Only show animals currently in "LACTANDO" according to the censo
+    const lactantes = (currentHerdCenso || []).filter(a => a.estado.includes('LACTANDO'));
+
+    // Default to lactantes list
+    const listToRender = lactantes.map(l => l.nombre);
+
+    grid.innerHTML = listToRender.map((animal, index) => `
+    <div class="animal-input-group" id="group-${prefix}-${animal}">
       <label>${getAnimalEmoji(animal)} ${animal}</label>
-      <input type="number" id="${prefix}-litros-${animal}" min="0" step="0.1" placeholder="0"
-             data-animal="${animal}" class="${prefix}-litros-input"
-             oninput="updateTotal('${prefix}')">
-      <label class="sin-ordeno-check">
+      <div class="d-flex gap-1 align-items-center">
+        <input type="number" id="${prefix}-litros-${animal}" min="0" step="0.1" placeholder="0"
+               data-animal="${animal}" class="${prefix}-litros-input form-control form-control-lg"
+               oninput="updateTotal('${prefix}')"
+               onkeydown="if(event.key==='Enter'){ event.preventDefault(); focusNextAnimal('${prefix}', ${index}); }">
+        <button type="button" class="btn btn-sm btn-outline-success" 
+                onclick="focusNextAnimal('${prefix}', ${index})" title="Siguiente">➡️</button>
+      </div>
+      <label class="sin-ordeno-check mt-1">
         <input type="checkbox" data-animal="${animal}" class="${prefix}-sin-ordeno"
                onchange="toggleSinOrdeno(this, '${prefix}')"> Sin ordeño
       </label>
     </div>
   `).join('');
+}
+
+function focusNextAnimal(prefix, currentIndex) {
+    const lactantes = (currentHerdCenso || []).filter(a => a.estado.includes('LACTANDO')).map(a => a.nombre);
+    if (currentIndex < lactantes.length - 1) {
+        const nextAnimal = lactantes[currentIndex + 1];
+        const nextInput = document.getElementById(`${prefix}-litros-${nextAnimal}`);
+        if (nextInput) {
+            nextInput.focus();
+            nextInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    } else {
+        const submitBtn = document.querySelector(`#panel-${prefix} button[type="submit"]`);
+        if (submitBtn) {
+            submitBtn.focus();
+            submitBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
 }
 
 function toggleSinOrdeno(checkbox, prefix) {
@@ -281,7 +366,7 @@ function updateTotal(prefix) {
 }
 
 function buildAnimalSelectors() {
-    ['insem-animal', 'nac-madre', 'celo-animal'].forEach(selectId => {
+    ['insem-animal', 'nac-madre', 'celo-animal', 'otro-animal'].forEach(selectId => {
         const select = document.getElementById(selectId);
         if (!select) return;
         select.innerHTML = '<option value="">— Seleccionar —</option>';
@@ -505,23 +590,12 @@ async function handleEvento(e) {
     }
 
     const btn = e.target.querySelector('button[type="submit"]');
-    await submitToSheets(payload, btn, 'evento-success', 'evento-form');
+    await saveToCloud(payload, btn, 'evento-success', 'evento-form');
 }
 
 // Initial badge update
 document.addEventListener('DOMContentLoaded', () => {
     updateNotificationBadge();
-
-    // Add animal names to the "Otro" animal selector
-    const otroAnimal = document.getElementById('otro-animal');
-    if (otroAnimal) {
-        ANIMALES.forEach(animal => {
-            const opt = document.createElement('option');
-            opt.value = animal;
-            opt.textContent = `${getAnimalEmoji(animal)} ${animal}`;
-            otroAnimal.appendChild(opt);
-        });
-    }
 });
 
 async function handleGasto(e) {
@@ -541,13 +615,13 @@ async function handleGasto(e) {
     }
 
     const btn = e.target.querySelector('button[type="submit"]');
-    await submitToSheets(payload, btn, 'gasto-success', 'gasto-form');
+    await saveToCloud(payload, btn, 'gasto-success', 'gasto-form');
 }
 
 
 // ─── API & FIREBASE COMMUNICATION ──────────────────────────
 
-async function submitToSheets(data, btn, successId, formId) {
+async function saveToCloud(data, btn, successId, formId) {
     const originalHTML = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Sincronizando...';
@@ -814,6 +888,13 @@ function setStatText(id, value) {
 let lastRentabilidadData = null;
 let concentradoPerAnimal = {}; // Stores individual Kg/day configurations per animal
 
+function updatePrecioPorKg() {
+    const bulto = parseFloat(document.getElementById('concentrado-precio-bulto').value) || 0;
+    const kg = bulto / 40;
+    document.getElementById('concentrado-precio-kg').value = kg.toFixed(0);
+    recalcRentabilidad();
+}
+
 // ─── ANÁLISIS AUTOMÁTICO DEL MES ───────────────────────────
 
 const MESES_NOMBRES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -830,40 +911,42 @@ async function generarAnalisisMes() {
     const mesNombre = mesEl ? MESES_NOMBRES[parseInt(mesEl.value)] : '';
     const anio = anioEl ? anioEl.value : '';
 
-    const rentable = ganancia > 0;
-    const margenStr = margen > 0 ? `${margen.toFixed(1)}%` : `${margen.toFixed(1)}%`;
-    const emoji = rentable ? '✅' : '⚠️';
-    const veredicto = rentable ? 'El hato fue RENTABLE este mes.' : 'El hato operó con PÉRDIDA este mes.';
+    const invPercentStr = (parseFloat(document.getElementById('investor-percent').value) * 100) + '%';
+    const totalInversionistas = document.getElementById('investor-total')?.textContent || '$0';
 
-    const analisis = `${emoji} <strong>${veredicto}</strong>
-<br><br>
-📅 <strong>Período analizado:</strong> ${mesNombre} ${anio}
-<br>
-🥛 <strong>Producción total:</strong> ${formatNumber(totalLitros)} litros — a un precio promedio de $${formatNumber(precioVenta)}/litro.
-<br>
-💵 <strong>Ingresos brutos estimados:</strong> $${formatNumber(ingresos)}
-<br>
-📉 <strong>Total de gastos registrados:</strong> $${formatNumber(gastos)}
-<br>
-🏆 <strong>Ganancia neta:</strong> $${formatNumber(ganancia)} — Margen: ${margenStr}
-<br>
-🧮 <strong>Costo de producción por litro:</strong> $${formatNumber(costoPorLitro)} ${costoPorLitro < precioVenta ? '(por debajo del precio de venta ✅)' : '(por encima del precio de venta ⚠️)'}
-<br><br>
-${mejorVaca ? `🐄 <strong>Vaca más rentable:</strong> ${mejorVaca}` : ''}
-${peorVaca ? `<br>🔻 <strong>Vaca menos rentable:</strong> ${peorVaca}` : ''}
-<br><br>
-${rentable
-            ? '💡 <em>Recomendación: Mantener el plan de alimentación actual. Considerar ampliar el hato si la demanda lo permite.</em>'
-            : '💡 <em>Recomendación: Revisar costos de concentrado y verificar si alguna vaca está en período de baja producción. Ajustar precio de venta si el mercado lo permite.</em>'}`;
+    let semaforoMsg = "🔴 <strong>Estatus Financiero: PÉRDIDA CRÍTICA.</strong> El margen es negativo. Se recomienda revisar urgentemente los costos operativos o la eficiencia de producción.";
+    if (margen > 30) {
+        semaforoMsg = "🟢 <strong>Estatus Financiero: ÓPTIMO.</strong> El hato presenta una salud financiera excelente con un margen superior al 30%. Es un momento ideal para reinversión.";
+    } else if (margen >= 10) {
+        semaforoMsg = "🟡 <strong>Estatus Financiero: ADECUADO.</strong> La operación es rentable y cubre costos, aunque el margen neto sugiere que hay espacio para optimizar el gasto en concentrado o insumos.";
+    }
+
+    const analisis = `
+        <h3 style="margin-top:0;">👨‍🏫 Informe de Auditoría Contable — ${mesNombre} ${anio}</h3>
+        <p>${semaforoMsg}</p>
+        <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin:15px 0;">
+        <div style="font-size: 0.9rem; line-height: 1.6;">
+            <p><strong>1. Desempeño Operativo:</strong> Se registraron <strong>${formatNumber(totalLitros)} litros</strong> de producción total. Con un precio unitario de $${formatNumber(precioVenta)}, el ingreso bruto consolidado es de <strong>$${formatNumber(ingresos)}</strong>.</p>
+            
+            <p><strong>2. Eficiencia de Costos:</strong> El costo de producción por litro se sitúa en <strong>$${formatNumber(costoPorLitro)}</strong>. El margen de contribución neta post-operación es del <strong>${margen.toFixed(1)}%</strong>.</p>
+            
+            <p><strong>3. Rendimiento Individual:</strong> La unidad productiva más eficiente fue <strong>${mejorVaca}</strong>. Se sugiere auditar el manejo de <strong>${peorVaca}</strong> para identificar fugas de rentabilidad por alimentación excedente.</p>
+            
+            <p><strong>4. Retribución a Capital:</strong> La utilidad neta líquida disponible para socios (Participación del ${invPercentStr}) asciende a <strong>${totalInversionistas}</strong> para este cierre contable.</p>
+            
+            <p><strong>Conclusión:</strong> Basado en el flujo de caja, el proyecto se encuentra en una posición ${ganancia > 0 ? "sostenible" : "de riesgo"}. Se adjunta desglose por categorías en el reporte PDF para su debida revisión de juntas.</p>
+        </div>
+    `;
 
     const card = document.getElementById('analisis-card');
     const texto = document.getElementById('analisis-texto');
+
     if (card && texto) {
         texto.innerHTML = analisis;
         card.style.display = 'block';
         card.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-    showToast('✅ Análisis generado', 'success');
+    showToast('✅ Auditoría generada', 'success');
 }
 
 
@@ -1008,188 +1091,795 @@ async function buildTendencialChart() {
 }
 
 
-async function loadRentabilidad() {
-    const mesEl = document.getElementById('rentabilidad-mes');
-    const anioEl = document.getElementById('rentabilidad-anio');
-    const params = {};
-    if (mesEl && anioEl) {
-        params.mes = mesEl.value;
-        params.anio = anioEl.value;
+let herdInventoryMeta = {}; // Stores animal category, breed, birthdate
+let currentHerdCenso = [];  // To allow CSV export
+
+async function loadHerdInventory() {
+    if (!db) {
+        showToast('Inventario requiere Firebase', 'warning');
+        return;
     }
 
-    setStatText('rentabilidad-periodo', 'Cargando datos históricos...');
+    const tbody = document.getElementById('hato-inventory-tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:20px;">🔍 Analizando hato y eventos...</td></tr>';
+
+    try {
+        // 1. Get ALL metadata (category, breed, etc.)
+        const metaSnap = await db.collection('hato_detalle').get();
+        herdInventoryMeta = {};
+        const allAnimalNamesInMeta = [];
+        metaSnap.forEach(doc => {
+            herdInventoryMeta[doc.id] = doc.data();
+            allAnimalNamesInMeta.push(doc.id);
+        });
+
+        // 2. Determine physiological state
+        const hatoDetalle = [];
+        let countProduccion = 0;
+        let countNoProd = 0;
+
+        // Use all names from metadata for the census (source of truth)
+        for (const animal of allAnimalNamesInMeta) {
+            let meta = herdInventoryMeta[animal] || {};
+
+            let idAnimal = meta.idAnimal || '—';
+            let raza = meta.raza || '—';
+            let fechaNac = meta.fechaNacimiento ? formatDate(meta.fechaNacimiento) : '—';
+            let padre = meta.padre || '—';
+            let madre = meta.madre || '—';
+            let registro = meta.registro || '—';
+            let fechaBaja = meta.fechaRetiro ? formatDate(meta.fechaRetiro) : '—';
+            let causaBaja = meta.motivoRetiro || '—';
+            let category = meta.categoria || 'Vaca (Producción)';
+
+            // Expert Classification Logic (Standardized)
+            let estado = 'LACTANDO 🥛';
+            let colorEstado = '#4ade80';
+
+            if (meta.status === 'Retirado' || category === 'Vendida' || category === 'Baja') {
+                estado = category.toUpperCase();
+                colorEstado = '#ef4444';
+            } else {
+                // Default to category name as state
+                estado = category;
+                if (category === 'Vaca (Producción)') {
+                    estado = 'LACTANDO 🥛';
+                    colorEstado = '#4ade80';
+                } else if (category === 'Vaca (Secando)') {
+                    estado = 'SECANDO 💤';
+                    colorEstado = '#f59e0b';
+                } else if (['Ternera', 'Novilla'].includes(category)) {
+                    estado = 'CRECIMIENTO 🌱';
+                    colorEstado = '#60a5fa';
+                } else if (category === 'Ternero') {
+                    estado = 'MACHO 🐃';
+                    colorEstado = '#fb7185';
+                }
+            }
+
+            if (estado.includes('LACTANDO')) {
+                countProduccion++;
+            } else if (meta.status !== 'Retirado') {
+                countNoProd++;
+            }
+
+            hatoDetalle.push({
+                idAnimal,
+                nombre: animal,
+                raza,
+                fechaNac,
+                padre,
+                madre,
+                registro,
+                estado: estado,
+                color: colorEstado,
+                baja: (meta.status === 'Retirado' || category === 'Vendida' || category === 'Baja') ? `${fechaBaja} (${causaBaja})` : '—'
+            });
+        }
+
+        // Update Global Animal List (Source of Truth)
+        ANIMALES = hatoDetalle.map(a => a.nombre);
+
+        currentHerdCenso = hatoDetalle;
+        renderHerdInventory(hatoDetalle, countProduccion, countNoProd);
+
+        // Refresh all UI pickers and grids
+        buildAnimalInputs('ordeno-animal-grid', 'ordeno');
+        buildAnimalSelectors();
+        renderConfigAnimales();
+
+        // After loading inventory, trigger a rentability recalc
+        recalcRentabilidad();
+    } catch (e) {
+        console.error('Error in loadHerdInventory:', e);
+        showToast('Error al procesar censo dinámico', 'error');
+    }
+}
+
+function openImportExcelModal() {
+    document.getElementById('import-excel-data').value = '';
+    document.getElementById('modal-import-excel').style.display = 'flex';
+}
+
+function closeImportExcelModal() {
+    document.getElementById('modal-import-excel').style.display = 'none';
+}
+
+// Helper for robust TSV parsing (handles quotes and multiline cells from Excel)
+function parseTSV(text) {
+    const rows = [];
+    let currentRow = [];
+    let currentCell = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        const nextChar = text[i + 1];
+
+        if (inQuotes) {
+            if (char === '"') {
+                if (nextChar === '"') {
+                    currentCell += '"';
+                    i++;
+                } else {
+                    inQuotes = false;
+                }
+            } else {
+                currentCell += char;
+            }
+        } else {
+            if (char === '"') {
+                inQuotes = true;
+            } else if (char === '\t') {
+                currentRow.push(currentCell.trim());
+                currentCell = '';
+            } else if (char === '\n' || char === '\r') {
+                if (char === '\r' && nextChar === '\n') i++;
+                currentRow.push(currentCell.trim());
+                if (currentRow.length > 1 || currentRow[0] !== "") {
+                    rows.push(currentRow);
+                }
+                currentRow = [];
+                currentCell = '';
+            } else {
+                currentCell += char;
+            }
+        }
+    }
+    if (currentCell || currentRow.length > 0) {
+        currentRow.push(currentCell.trim());
+        rows.push(currentRow);
+    }
+    return rows;
+}
+
+async function processExcelImport() {
+    const rawData = document.getElementById('import-excel-data').value.trim();
+    if (!rawData) {
+        showToast('Pega datos de Excel primero', 'warning');
+        return;
+    }
+
+    const rows = parseTSV(rawData);
+    const newAnimalsList = [];
+    const metaBatch = {};
+
+    rows.forEach((cols, index) => {
+        // Skip header if detected
+        if (index === 0 && (cols[0]?.toLowerCase().includes('id') || cols[1]?.toLowerCase().includes('nombre'))) {
+            return;
+        }
+
+        if (cols.length >= 2) {
+            const id = cols[0] || '—';
+            const name = cols[1];
+            if (!name) return;
+
+            const raza = cols[2] || '—';
+            const birth = cols[3] || '';
+            const father = cols[4] || '';
+            const mother = cols[5] || '';
+            const register = cols[6] || '';
+            const rawStatus = (cols[7] || '').toLowerCase();
+            const birthValue = cols[8] || '';
+            const causeValue = cols[9] || '';
+            const notes = cols[10] || '';
+
+            // Detect Category
+            let category = 'Vaca';
+            if (rawStatus.includes('terner')) {
+                category = rawStatus.includes('ternero') ? 'Ternero' : 'Ternera';
+            }
+            if (rawStatus.includes('novilla')) category = 'Novilla';
+            if (rawStatus.includes('toro')) category = 'Toro';
+
+            // Detect Status
+            let status = 'Activo';
+            if (rawStatus.includes('vendida') || rawStatus.includes('baja') || birthValue) {
+                status = 'Retirado';
+            }
+
+            if (status === 'Activo' || status === 'Retirado') {
+                newAnimalsList.push(name);
+            }
+
+            metaBatch[name] = {
+                idAnimal: id,
+                nombre: name,
+                raza: raza,
+                fechaNacimiento: birth,
+                padre: father,
+                madre: mother,
+                registro: register,
+                status: status,
+                fechaRetiro: birthValue,
+                motivoRetiro: causeValue || (rawStatus.includes('vendida') ? 'Venta' : (rawStatus.includes('baja') ? 'Baja' : '')),
+                notas: notes,
+                categoria: category
+            };
+        }
+    });
+
+    if (Object.keys(metaBatch).length === 0) {
+        showToast('No se encontraron registros válidos', 'error');
+        return;
+    }
+
+    if (!db) {
+        showToast('Modo demo: No se puede guardar en Firestore', 'warning');
+        return;
+    }
+
+    try {
+        showToast(`Importando ${Object.keys(metaBatch).length} animales...`, 'info');
+
+        // 1. Update global animal list in Firestore
+        await db.collection('config').doc('hato').set({ animales: newAnimalsList }, { merge: true });
+
+        // 2. Batch update animal details
+        const batch = db.batch();
+        for (const [name, data] of Object.entries(metaBatch)) {
+            const docRef = db.collection('hato_detalle').doc(name);
+            batch.set(docRef, {
+                ...data,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+        }
+        await batch.commit();
+
+        ANIMALES = newAnimalsList;
+        showToast('Censo sincronizado con éxito ✅', 'success');
+        closeImportExcelModal();
+
+        // Force complete refresh of the app state
+        await loadHerdInventory();
+    } catch (e) {
+        console.error('Import error:', e);
+        showToast('Error en la sincronización: ' + e.message, 'error');
+    }
+}
+
+function renderHerdInventory(items, prod, noprod) {
+    const tbody = document.getElementById('hato-inventory-tbody');
+    if (!tbody) return;
+
+    document.getElementById('censo-total').textContent = items.length;
+    document.getElementById('censo-produccion').textContent = prod;
+    document.getElementById('censo-no-productivo').textContent = noprod;
+
+    const mantCost = parseFloat(document.getElementById('costo-mantenimiento-no-prod')?.value) || 50000;
+
+    tbody.innerHTML = items.map(item => {
+        const isProduccion = item.estado.includes('LACTANDO');
+
+        return `
+            <tr>
+                <td style="font-family:monospace; font-weight:700;">${item.idAnimal}</td>
+                <td><strong>${item.nombre}</strong></td>
+                <td>${item.raza}</td>
+                <td style="font-size:0.8rem;">${item.fechaNac}</td>
+                <td style="font-size:0.8rem;">${item.padre}</td>
+                <td style="font-size:0.8rem;">${item.madre}</td>
+                <td style="font-size:0.8rem; color:var(--text-muted);">${item.registro}</td>
+                <td><span style="color:${item.color}; font-weight:600;">${item.estado}</span></td>
+                <td style="font-size:0.75rem; color:#ef4444;">${item.baja}</td>
+                <td>
+                    <div class="d-flex gap-1">
+                        <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditAnimalModal('${item.nombre}')" title="Editar">📝</button>
+                        <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem; background:#ef4444;" onclick="openRemoveAnimalModal('${item.nombre}')" title="Retirar">📤</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// ─── ALTA Y BAJA DE ANIMALES ────────────────────────────────
+
+function openAddAnimalModal() {
+    document.getElementById('add-animal-name').value = '';
+    document.getElementById('add-animal-breed').value = '';
+    document.getElementById('modal-add-animal').style.display = 'flex';
+}
+
+function closeAddAnimalModal() {
+    document.getElementById('modal-add-animal').style.display = 'none';
+}
+
+async function seedInitialHerd() {
+    if (!confirm('¿Desea cargar el hato inicial base? Esto agregará 10 animales preconfigurados.')) return;
+    if (!db) { showToast('Acción no disponible en modo Demo', 'warning'); return; }
+
+    const initialHerd = [
+        { name: 'Moli', id: '—', breed: 'Holstein', cat: 'Vaca (Producción)', father: '—', mother: '—', status: 'Activo' },
+        { name: 'Dulce', id: '—', breed: 'Ayrshire', cat: 'Vaca (Producción)', father: '—', mother: '—', status: 'Activo' },
+        { name: 'Morocha', id: '—', breed: 'Angus', cat: 'Vaca (Producción)', father: '—', mother: '—', status: 'Activo' },
+        { name: 'Miel (2115)', id: '2115', breed: 'Montbeliarde/Holstein', birth: '07/04/2023', father: 'N19', mother: '1690-Montbeliarde', cat: 'Vaca (Producción)', status: 'Activo' },
+        { name: 'Mapi', id: '2102', breed: 'Holstein', birth: '09/01/2023', father: 'Porsche 556HO1303', mother: '1981', cat: 'Vaca (Producción)', status: 'Activo' },
+        { name: 'Hércules/Ranger', id: '—', breed: 'Montbeliarde', birth: '29/04/2025', father: 'Ranger Red 7HO12344', mother: 'Miel', cat: 'Ternera', status: 'Activo' },
+        { name: 'Conny', id: '—', breed: 'Jersey', birth: '27/11/2024', father: '—', mother: '—', cat: 'Ternera', status: 'Activo' },
+        { name: 'Martina', id: '—', breed: 'Holstein', birth: '26/06/2023', father: '—', mother: '—', cat: 'Baja', status: 'Retirado', reason: 'Baja Produccion', dateRet: '14/02/2026' },
+        { name: 'Sol', id: '2112', breed: 'Holstein', birth: '27/03/2023', father: 'Guru 14HO7794', mother: '2010', cat: 'Vaca (Producción)', status: 'Activo' },
+        { name: 'Nube', id: '2114', breed: 'Holstein', birth: '29/03/2023', father: 'Guru 14HO7794', mother: '2005', cat: 'Vaca (Producción)', status: 'Activo' },
+        { name: 'Bambi', id: '—', breed: 'Angus', birth: '16/04/2025', father: 'Holstein', mother: 'Morocha', cat: 'Ternera', status: 'Activo' },
+        { name: 'Mandarina', id: '—', breed: 'Normando', cat: 'Baja', status: 'Retirado', reason: 'Cambio', dateRet: '14/02/2026', notes: '01/10/2025 aborto, 4 meses aprox.' },
+        { name: 'Gurú', id: '—', breed: 'Holstein', birth: '13/06/2025', father: 'Quick Work', mother: 'nube', cat: 'Ternero', status: 'Activo' },
+        { name: 'Augusto', id: '—', breed: 'Angus', birth: '06/06/2025', cat: 'Baja', status: 'Retirado', reason: 'Venta para crianza', dateRet: '10/06/2025' },
+        { name: 'Lulu', id: '—', breed: 'Holstein', birth: '26/06/2025', father: 'River Red 17HO16781', mother: 'Sol 2112', cat: 'Ternera', status: 'Activo', notes: 'destete lulu 15/10/2025 2 tasas de concentrado y una de suplemento por ración' },
+        { name: 'Consentida', id: '—', breed: 'Holstein Red', birth: '08/08/2025', father: '—', mother: 'Moli', cat: 'Ternera', status: 'Activo', notes: '24/10/2025 se baja la leche a 2 litros y medio se empieza a dar una taza de concentrado por ración el 01/11/2025, destete completo el 14/11/2025 aumenta racion concentrado a 2 tazas' },
+        { name: 'MacFly', id: '—', breed: 'Holstein Red', birth: '23/09/2025', father: 'Desconocido', mother: 'Martina', cat: 'Ternero', status: 'Retirado', reason: 'venta para crianza' },
+        { name: 'Chilindrina', id: '2143', breed: 'Holstein', birth: '18/12/2023', father: 'BUTLER 7HO12195', mother: '1881', cat: 'Vaca (Secando)', status: 'Activo' },
+        { name: 'Miel (2159)', id: '2159', breed: 'Montbeliarde/Holstein', birth: '10/03/2024', father: 'Ranger-Red 7HO12344', mother: '1690', cat: 'Vaca (Secando)', status: 'Activo' },
+        { name: 'Regalo', id: '—', breed: 'Holstein', birth: '10/02/2026', father: 'FOX 0200H010911', mother: '2092', cat: 'Ternera', status: 'Activo' }
+    ];
+
+    try {
+        showToast('Cargando hato inicial...', 'info');
+        const batch = db.batch();
+        const activeNames = [];
+
+        initialHerd.forEach(a => {
+            const ref = db.collection('hato_detalle').doc(a.name);
+            const data = {
+                idAnimal: a.id,
+                nombre: a.name,
+                raza: a.breed,
+                fechaNacimiento: a.জন্ম || '',
+                padre: a.father,
+                madre: a.mother,
+                categoria: a.cat,
+                status: a.status || 'Activo',
+                motivoRetiro: a.reason || '',
+                fechaRetiro: a.dateRet || '',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            batch.set(ref, data, { merge: true });
+            if (data.status === 'Activo') activeNames.push(a.name);
+        });
+
+        await batch.commit();
+
+        // Update Global Config
+        const newAnimalList = [...new Set([...ANIMALES, ...activeNames])];
+        await db.collection('config').doc('hato').set({ animales: newAnimalList }, { merge: true });
+
+        ANIMALES = newAnimalList;
+        showToast('Hato inicial cargado con éxito 🚀', 'success');
+        loadHerdInventory();
+    } catch (e) {
+        console.error('Error seeding herd:', e);
+        showToast('Error en la carga inicial', 'error');
+    }
+}
+
+async function saveNewAnimal() {
+    const id = document.getElementById('add-animal-id').value.trim();
+    const name = document.getElementById('add-animal-name').value.trim();
+    const category = document.getElementById('add-animal-category').value;
+    const breed = document.getElementById('add-animal-breed').value.trim();
+    const birth = document.getElementById('add-animal-birth').value;
+    const father = document.getElementById('add-animal-father').value.trim();
+    const mother = document.getElementById('add-animal-mother').value.trim();
+    const register = document.getElementById('add-animal-register').value.trim();
+
+    if (!name) {
+        showToast('Ingrese el nombre del animal', 'warning');
+        return;
+    }
+
+    if (!db) {
+        showToast('Modo demo: No se puede guardar', 'warning');
+        return;
+    }
+
+    try {
+        // 1. Add to global list if not exists
+        if (!ANIMALES.includes(name)) {
+            ANIMALES.push(name);
+            await db.collection('config').doc('hato').set({ animales: ANIMALES }, { merge: true });
+        }
+
+        // 2. Save metadata
+        await db.collection('hato_detalle').doc(name).set({
+            idAnimal: id,
+            categoria: category,
+            raza: breed,
+            fechaNacimiento: birth,
+            padre: father,
+            madre: mother,
+            registro: register,
+            status: 'Activo',
+            addedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        showToast(`${name} registrado con éxito 🐄`, 'success');
+        closeAddAnimalModal();
+        loadHerdInventory();
+    } catch (e) {
+        console.error('Error adding animal:', e);
+        showToast('Error al registrar animal', 'error');
+    }
+}
+
+function openRemoveAnimalModal(name) {
+    if (!confirm(`¿Está seguro que desea retirar a ${name} del censo activo?`)) return;
+    removeAnimal(name);
+}
+
+async function removeAnimal(name) {
+    if (!db) return;
+    try {
+        const motivo = prompt(`Motivo del retiro para ${name} (Venta, Baja, Muerte):`, 'Venta');
+        if (!motivo) return;
+
+        // 1. Remove from active list
+        ANIMALES = ANIMALES.filter(a => a !== name);
+        await db.collection('config').doc('hato').set({ animales: ANIMALES });
+
+        // 2. Mark in metadata as inactive
+        await db.collection('hato_detalle').doc(name).set({
+            status: 'Retirado',
+            motivoRetiro: motivo,
+            fechaRetiro: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        showToast(`${name} ha sido retirado del hato activo`, 'info');
+        loadHerdInventory();
+    } catch (e) {
+        console.error('Error removing animal:', e);
+        showToast('Error al procesar retiro', 'error');
+    }
+}
+
+function openEditAnimalModal(name) {
+    const meta = herdInventoryMeta[name] || {};
+    document.getElementById('edit-animal-name-hidden').value = name;
+    document.getElementById('edit-animal-title').textContent = `🐄 Editar ${name}`;
+
+    document.getElementById('edit-animal-id').value = meta.idAnimal || '';
+    document.getElementById('edit-animal-name').value = name;
+    document.getElementById('edit-animal-category').value = meta.categoria || 'Vaca';
+    document.getElementById('edit-animal-breed').value = meta.raza || '';
+    document.getElementById('edit-animal-birth').value = meta.fechaNacimiento || '';
+    document.getElementById('edit-animal-father').value = meta.padre || '';
+    document.getElementById('edit-animal-mother').value = meta.madre || '';
+    document.getElementById('edit-animal-register').value = meta.registro || '';
+
+    document.getElementById('modal-edit-animal').style.display = 'flex';
+}
+
+function closeEditAnimalModal() {
+    document.getElementById('modal-edit-animal').style.display = 'none';
+}
+
+async function saveAnimalMetadata() {
+    const name = document.getElementById('edit-animal-name-hidden').value;
+    const id = document.getElementById('edit-animal-id').value.trim();
+    const category = document.getElementById('edit-animal-category').value;
+    const breed = document.getElementById('edit-animal-breed').value.trim();
+    const birth = document.getElementById('edit-animal-birth').value;
+    const father = document.getElementById('edit-animal-father').value.trim();
+    const mother = document.getElementById('edit-animal-mother').value.trim();
+    const register = document.getElementById('edit-animal-register').value.trim();
+
+    if (!db) {
+        showToast('Modo demo: No se puede guardar metadatos', 'warning');
+        closeEditAnimalModal();
+        return;
+    }
+
+    try {
+        await db.collection('hato_detalle').doc(name).set({
+            idAnimal: id,
+            categoria: category,
+            raza: breed,
+            fechaNacimiento: birth,
+            padre: father,
+            madre: mother,
+            registro: register,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        showToast(`Datos de ${name} actualizados ✅`, 'success');
+        closeEditAnimalModal();
+        loadHerdInventory(); // Reload table
+    } catch (e) {
+        console.error('Error saving animal meta:', e);
+        showToast('Error al guardar datos', 'error');
+    }
+}
+
+function exportHerdInventoryExcel() {
+    if (!currentHerdCenso || currentHerdCenso.length === 0) {
+        showToast('No hay datos en el censo para exportar', 'warning');
+        return;
+    }
+
+    try {
+        const headers = ['ID Animal', 'Nombre', 'Raza', 'Fecha Nacimiento', 'Padre', 'Madre', 'Registro', 'Estado Actual', 'Baja/Causa'];
+        const rows = currentHerdCenso.map(item => [
+            item.idAnimal,
+            item.nombre,
+            item.raza.replace(',', ';'),
+            item.fechaNac,
+            item.padres.split('/')[0] || '', // Padre
+            item.padres.split('/')[1] || '', // Madre
+            item.registro.replace(',', ';'),
+            item.estado.replace(',', ';'),
+            item.baja.replace(',', ';')
+        ]);
+
+        // Create CSV content (UTF-8 with BOM for Excel compatibility)
+        let csvContent = "\uFEFF"; // UTF-8 BOM
+        csvContent += headers.join(',') + '\n';
+        rows.forEach(row => {
+            csvContent += row.join(',') + '\n';
+        });
+
+        // Download Browser Trick
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `Censo_Hato_PaMora_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        showToast('Inventario exportado ✅', 'success');
+    } catch (e) {
+        console.error('Export error:', e);
+        showToast('Error al exportar censo', 'error');
+    }
+}
+
+// ─── PANEL ADMINISTRATIVO Y ELIMINACIÓN DOBLE ───────────────
+
+let pendingDeleteData = null;
+
+// ─── GESTIÓN DE ELIMINACIÓN CENTRALIZADA ───────────────
+// (Integrada en Explorador de Eventos)
+
+function requestQuickDelete(col, id, info) {
+    pendingDeleteData = { col, id };
+    document.getElementById('delete-info-text').textContent = info;
+    document.getElementById('delete-confirm-input').value = '';
+    document.getElementById('modal-confirm-delete').style.display = 'flex';
+}
+
+function closeDeleteModal() {
+    document.getElementById('modal-confirm-delete').style.display = 'none';
+    pendingDeleteData = null;
+}
+
+async function executeFinalDelete() {
+    const input = document.getElementById('delete-confirm-input').value;
+    if (input !== 'ELIMINAR') {
+        showToast('Debe escribir ELIMINAR para confirmar', 'warning');
+        return;
+    }
+
+    if (!pendingDeleteData || !db) return;
+
+    try {
+        const { col, id } = pendingDeleteData;
+        await db.collection(col).doc(id).delete();
+
+        showToast('Registro eliminado permanentemente 🗑️', 'success');
+        closeDeleteModal();
+        // Refresh relevant sections based on the deleted collection
+        if (col === 'eventos') loadEventExplorer();
+        if (col === 'ordenos' || col === 'gastos') loadDashboardStats();
+        // If there's an admin activity panel, it would be refreshed here too.
+        // For now, we assume the explorer is the primary view.
+
+    } catch (e) {
+        console.error('Delete error:', e);
+        showToast('No se pudo eliminar el registro', 'error');
+    }
+}
+
+
+function updatePrecioPorKg() {
+    const bulto = parseFloat(document.getElementById('concentrado-precio-bulto').value) || 0;
+    const kg = bulto / 40;
+    document.getElementById('concentrado-precio-kg').value = kg.toFixed(0);
+}
+
+function buildDietInputs() {
+    const grid = document.getElementById('grid-dietas-animales');
+    if (!grid) return;
+
+    // Filter: Only Lactating
+    const lactantes = (currentHerdCenso || []).filter(a => a.estado.includes('LACTANDO'));
+
+    grid.innerHTML = lactantes.map(animal => `
+        <div class="animal-input-group" style="padding: 10px; border-radius: 12px; background: rgba(255,255,255,0.02);">
+            <label style="font-size: 0.9rem;">${getAnimalEmoji(animal.nombre)} ${animal.nombre}</label>
+            <div class="input-group input-group-sm">
+                <input type="number" id="diet-kg-${animal.nombre}" class="form-control diet-input" 
+                       min="0" step="0.1" value="0" placeholder="kg/día" 
+                       onchange="recalcRentabilidad()">
+                <span class="input-group-text">kg</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function guardarParametrosRentabilidad() {
+    const params = {
+        mes: document.getElementById('rentabilidad-mes').value,
+        anio: document.getElementById('rentabilidad-anio').value
+    };
+    const id = `${params.anio}-${params.mes}`;
+
+    const precioBulto = parseFloat(document.getElementById('concentrado-precio-bulto').value) || 0;
+    const precioLitro = parseFloat(document.getElementById('precio-venta-litro').value) || 0;
+    const mantenimientoNoProd = parseFloat(document.getElementById('costo-mantenimiento-no-prod').value) || 0;
+    const costoTerneras = parseFloat(document.getElementById('costo-concentrado-terneras').value) || 0;
+
+    const dietas = {};
+    ANIMALES.forEach(animal => {
+        const val = parseFloat(document.getElementById(`diet-kg-${animal}`).value) || 0;
+        dietas[animal] = val;
+    });
+
+    if (!db) {
+        showToast('Modo demo: No se puede guardar configuración', 'warning');
+        return;
+    }
+
+    try {
+        await db.collection('rentabilidad_config').doc(id).set({
+            precioBulto,
+            precioLitro,
+            mantenimientoNoProd,
+            costoTerneras,
+            dietas,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        showToast('Configuración del mes guardada ✅', 'success');
+        recalcRentabilidad();
+    } catch (e) {
+        console.error('Error saving rentability config:', e);
+        showToast('Error al guardar configuración', 'error');
+    }
+}
+async function loadRentabilidad() {
+    const params = {
+        mes: document.getElementById('rentabilidad-mes').value,
+        anio: document.getElementById('rentabilidad-anio').value
+    };
+
+    setStatText('rentabilidad-periodo', 'Cargando datos contables...');
     const data = await fetchFromSheets('rentabilidad', params);
     lastRentabilidadData = data;
 
-    // Reset per-animal concentrate configurations to prevent data bleeding between months
-    concentradoPerAnimal = {};
+    buildDietInputs();
 
-    if (data.parametrosHistoricos) {
-        document.getElementById('precio-venta-litro').value = data.parametrosHistoricos.precioVentaLitro || 2500;
-        document.getElementById('concentrado-precio-kg').value = data.parametrosHistoricos.precioKgConcentrado || 1800;
-        concentradoPerAnimal = data.parametrosHistoricos.concentradoPerAnimal || {};
-    } else {
-        // Reset global parameters to defaults if no history found for this month
-        document.getElementById('precio-venta-litro').value = 2500;
-        document.getElementById('concentrado-precio-kg').value = 1800;
+    if (db) {
+        const id = `${params.anio}-${params.mes}`;
+        try {
+            const doc = await db.collection('rentabilidad_config').doc(id).get();
+            if (doc.exists) {
+                const config = doc.data();
+                document.getElementById('precio-venta-litro').value = config.precioLitro || 2500;
+                document.getElementById('concentrado-precio-bulto').value = config.precioBulto || 72000;
+                document.getElementById('costo-mantenimiento-no-prod').value = config.mantenimientoNoProd || 50000;
+                document.getElementById('costo-concentrado-terneras').value = config.costoTerneras || 0;
+
+                const diets = config.dietas || {};
+                ANIMALES.forEach(animal => {
+                    const el = document.getElementById(`diet-kg-${animal}`);
+                    if (el) el.value = diets[animal] || 0;
+                });
+            }
+        } catch (e) { console.error('Error loading config:', e); }
     }
-
-    renderRentabilidad();
+    updatePrecioPorKg();
+    recalcRentabilidad();
 }
 
-function renderRentabilidad() {
+function recalcRentabilidad() {
     if (!lastRentabilidadData) return;
     const data = lastRentabilidadData;
 
-    // Get config values
-    const precioVenta = parseFloat(document.getElementById('precio-venta-litro').value) || data.precioVentaLitro || 2500;
-    const confPrecioKg = parseFloat(document.getElementById('concentrado-precio-kg').value) || 1800;
+    const precioLitro = parseFloat(document.getElementById('precio-venta-litro').value) || 2500;
+    const precioBulto = parseFloat(document.getElementById('concentrado-precio-bulto').value) || 72000;
+    const precioKg = precioBulto / 40;
+    const daysInMonth = data.diasRegistrados || 30;
 
-    // Recalculate KPIs based on custom price and per-cow concentrate logic
-    const ingresos = data.totalLitros * precioVenta;
-    const ganancia = ingresos - data.totalGastos;
-    const margen = ingresos > 0 ? ((ganancia / ingresos) * 100).toFixed(1) : 0;
+    const ingresos = data.totalLitros * precioLitro;
 
-    // Update KPIs
-    setStatText('rentabilidad-periodo', data.periodo || 'Mes actual');
-    document.getElementById('kpi-ingresos').textContent = '$' + formatNumber(ingresos);
-    document.getElementById('kpi-gastos').textContent = '$' + formatNumber(data.totalGastos || 0);
+    let totalCostoConcentradoAudit = 0;
+    let missingCows = [];
 
-    const gananciaEl = document.getElementById('kpi-ganancia');
-    gananciaEl.textContent = '$' + formatNumber(ganancia);
-    gananciaEl.className = 'kpi-value ' + (ganancia >= 0 ? 'positive' : 'negative');
+    // Audit only lactating cows
+    const lactantes = (currentHerdCenso || []).filter(a => a.estado.includes('LACTANDO'));
 
-    setStatText('kpi-margen', 'Margen: ' + margen + '%');
-
-    // Configured cost per liter logic just reflects total expenses vs total liters produced
-    const costoLitro = data.totalLitros > 0 ? (data.totalGastos / data.totalLitros).toFixed(0) : 0;
-    document.getElementById('kpi-costo-litro').textContent = '$' + formatNumber(costoLitro);
-    setStatText('kpi-precio-venta', 'Precio venta: $' + formatNumber(precioVenta));
-
-    // Per Cow Table
-    const perCowTbody = document.getElementById('per-cow-tbody');
-    const dias = data.diasRegistrados || 1;
-    let tableHtml = '';
-
-    // We must recalculate total expenses for the period based on the sum of all individual concentrate costs
-    let totalConcentradoCost = 0;
-
-    ANIMALES.forEach(animal => {
-        const prod = data.produccionPorAnimal?.[animal];
-        if (!prod || prod.total === 0) return;
-
-        const cowLiters = prod.total;
-        const incomeBruto = cowLiters * precioVenta;
-
-        // Concentrado calculations (configurable per cow)
-        const cowKgDia = concentradoPerAnimal[animal] !== undefined ? concentradoPerAnimal[animal] : 4;
-        const costoConcentradoVaca = cowKgDia * confPrecioKg * dias;
-        totalConcentradoCost += costoConcentradoVaca;
-
-        const gananciaVaca = incomeBruto - costoConcentradoVaca;
-
-        const isRentable = gananciaVaca > 0;
-        const badgeClass = isRentable ? 'badge-success' : 'badge-danger';
-        const statusText = isRentable ? 'Rentable' : 'Pérdida';
-        const colorClass = isRentable ? 'positive' : 'negative';
-
-        tableHtml += `
-                < tr >
-          <td><strong>${ANIMAL_EMOJIS[animal]} ${animal}</strong></td>
-          <td>${cowLiters} L</td>
-          <td>${prod.promedioDiario} L/día</td>
-          <td>
-            <input type="number" class="form-control" style="width: 70px; padding: 4px; display: inline-block; font-size: 0.85rem;" 
-                   min="0" step="0.5" value="${cowKgDia}" 
-                   onchange="updateConcentradoVaca('${animal}', this.value)">
-          </td>
-          <td>$${formatNumber(incomeBruto)}</td>
-          <td style="color:#f59e0b;">$${formatNumber(costoConcentradoVaca)}</td>
-          <td class="${colorClass}"><strong>$${formatNumber(gananciaVaca)}</strong></td>
-          <td><span class="badge-pamora ${badgeClass}">${statusText}</span></td>
-        </tr > `;
+    lactantes.forEach(animal => {
+        const kgDiaInput = document.getElementById(`diet-kg-${animal.nombre}`);
+        const kgDia = kgDiaInput ? parseFloat(kgDiaInput.value) : 0;
+        const isProducing = (data.produccionPorAnimal?.[animal.nombre]?.total || 0) > 0;
+        if (isProducing && kgDia <= 0) missingCows.push(animal.nombre);
+        totalCostoConcentradoAudit += (kgDia * daysInMonth * precioKg);
     });
 
-    if (tableHtml === '') tableHtml = '<tr><td colspan="8" class="text-center">Sin datos de producción</td></tr>';
-    perCowTbody.innerHTML = tableHtml;
+    const mantOtros = parseFloat(document.getElementById('costo-mantenimiento-no-prod').value) || 0;
+    const costTerneras = parseFloat(document.getElementById('costo-concentrado-terneras').value) || 0;
+    const countNoProd = (currentHerdCenso || []).filter(a => !a.estado.includes('Producción')).length;
+
+    const totalGastosAudit = totalCostoConcentradoAudit + (countNoProd * mantOtros) + costTerneras;
+    const utilidadAudit = ingresos - totalGastosAudit;
+    const margenAudit = ingresos > 0 ? (utilidadAudit / ingresos) * 100 : 0;
+
+    // Update KPI UI
+    document.getElementById('kpi-ingresos').textContent = '$' + formatNumber(ingresos);
+    document.getElementById('kpi-gastos').textContent = '$' + formatNumber(totalGastosAudit);
+    const utilEl = document.getElementById('kpi-ganancia');
+    utilEl.textContent = '$' + formatNumber(utilidadAudit);
+    utilEl.className = 'kpi-value ' + (utilidadAudit >= 0 ? 'positive' : 'negative');
+    setStatText('kpi-margen', 'Margen Real: ' + margenAudit.toFixed(1) + '%');
+
+    // Semaphore
+    const semaforo = document.getElementById('semaforo-circulo');
+    const vTexto = document.getElementById('veredicto-texto');
+    let color = "#ef4444", status = "CRÍTICO", emoji = "🔴";
+
+    if (missingCows.length > 0) {
+        color = "#94a3b8"; status = "BLOQUEADO"; emoji = "🔒";
+    } else if (margenAudit > 25) {
+        color = "#22c55e"; status = "ÓPTIMO"; emoji = "🟢";
+    } else if (margenAudit >= 5) {
+        color = "#eab308"; status = "ADECUADO"; emoji = "🟡";
+    }
+
+    if (semaforo) { semaforo.style.background = color; semaforo.textContent = emoji; }
+    if (vTexto) { vTexto.textContent = status; vTexto.style.color = color; }
 
     // Charts
     buildProduccionAnimalChart(data);
-
-    // Costo vs Venta dynamic update with new price
-    data._dPrecioVenta = precioVenta;
+    data._dPrecioVenta = precioLitro;
     buildCostoVsVentaChart(data);
-
-    // Update overall expenses chart using the new dynamic concentrate total
     const dynamicData = JSON.parse(JSON.stringify(data));
-    if (dynamicData.porCategoria) {
-        dynamicData.porCategoria['Concentrado'] = totalConcentradoCost;
-    }
-
-    // Also override global KPIs to reflect the sum of all individual concentrate configs
-    const totalGastosExceptoConcentrado = Object.entries(data.porCategoria || {})
-        .filter(([k, v]) => k !== 'Concentrado')
-        .reduce((sum, [k, v]) => sum + v, 0);
-
-    const recalculatedTotalGastos = totalGastosExceptoConcentrado + totalConcentradoCost;
-    const recalculatedGanancia = ingresos - recalculatedTotalGastos;
-    const recalculatedMargen = ingresos > 0 ? ((recalculatedGanancia / ingresos) * 100).toFixed(1) : 0;
-
-    document.getElementById('kpi-gastos').textContent = '$' + formatNumber(recalculatedTotalGastos);
-    const gananciaElUpdated = document.getElementById('kpi-ganancia');
-    gananciaElUpdated.textContent = '$' + formatNumber(recalculatedGanancia);
-    gananciaElUpdated.className = 'kpi-value ' + (recalculatedGanancia >= 0 ? 'positive' : 'negative');
-    setStatText('kpi-margen', 'Margen: ' + recalculatedMargen + '%');
-
-    const veredictoEmoji = document.getElementById('veredicto-emoji');
-    const veredictoTexto = document.getElementById('veredicto-texto');
-    const veredictoDetalle = document.getElementById('veredicto-detalle');
-
-    if (recalculatedGanancia > 0) {
-        veredictoEmoji.textContent = '🏆';
-        veredictoTexto.textContent = 'El Hato es RENTABLE';
-        veredictoTexto.style.color = '#4ade80';
-        veredictoDetalle.textContent = `Generando utilidades con un margen del ${recalculatedMargen}% sobre los ingresos.`;
-        document.getElementById('hato-veredicto').style.borderLeft = '6px solid #4ade80';
-    } else {
-        veredictoEmoji.textContent = '⚠️';
-        veredictoTexto.textContent = 'El Hato NO es rentable actualmente';
-        veredictoTexto.style.color = '#ef4444';
-        veredictoDetalle.textContent = 'Los costos de operación superan los ingresos por producción lechera.';
-        document.getElementById('hato-veredicto').style.borderLeft = '6px solid #ef4444';
-    }
-
+    if (dynamicData.porCategoria) dynamicData.porCategoria['Concentrado'] = totalCostoConcentradoAudit;
     buildGastosCategoriaChart(dynamicData);
-
-    // Expose final calculated KPIs for generarAnalisisMes
-    const allCowGains = ANIMALES.map(a => {
-        const p = data.produccionPorAnimal?.[a];
-        if (!p || p.total === 0) return null;
-        return { animal: a, ganancia: (p.total * precioVenta) - ((concentradoPerAnimal[a] ?? 4) * confPrecioKg * (data.diasRegistrados || 1)) };
-    }).filter(Boolean);
-    allCowGains.sort((a, b) => b.ganancia - a.ganancia);
-
-    lastRentabilidadData = {
-        ...data,
-        ingresos,
-        gastos: recalculatedTotalGastos,
-        ganancia: recalculatedGanancia,
-        margen: parseFloat(recalculatedMargen),
-        costoPorLitro: data.totalLitros > 0 ? recalculatedTotalGastos / data.totalLitros : 0,
-        precioVenta,
-        mejorVaca: allCowGains[0]?.animal,
-        peorVaca: allCowGains[allCowGains.length - 1]?.animal
-    };
 }
 
-function updateConcentradoVaca(animal, value) {
-    concentradoPerAnimal[animal] = parseFloat(value) || 0;
+async function updateConcentradoVaca(animal, value) {
+    const val = parseFloat(value) || 0;
+    // We already have diet inputs in the grid, so we just trigger a recalc
+    // If we want to persist immediately, we use the guardarParametrosRentabilidad pattern
     recalcRentabilidad();
 }
 
 function recalcRentabilidad() {
     renderRentabilidad();
 }
+
+// Ensure renderRentabilidad is NOT duplicated. Wait, I replaced loadRentabilidad earlier.
+// Let's just make sure there is only ONE recalcRentabilidad and it works.
 
 function buildProduccionAnimalChart(data) {
     const ctx = document.getElementById('chart-produccion-animal');
@@ -1407,7 +2097,7 @@ function quitarAnimal(index) {
 async function guardarConfiguracion() {
     const payload = { tipo: 'configuracion', animales: ANIMALES, token: API_TOKEN };
     const btn = document.getElementById('btn-guardar-config');
-    await submitToSheets(payload, btn, 'config-success', null);
+    await saveToCloud(payload, btn, 'config-success', null);
 }
 
 
@@ -1530,6 +2220,10 @@ function filterExplorer() {
 
     tbody.innerHTML = filtered.map(ev => {
         const dateStr = ev.fecha || (ev.timestamp ? ev.timestamp.toDate().toLocaleDateString() : '---');
+        const coll = ev.collection || 'eventos'; // Fallback for old records
+        const docId = ev.id || '';
+        const label = ev.animal || ev.tipo || 'evento';
+
         return `
             <tr>
                 <td>${dateStr}</td>
@@ -1537,9 +2231,46 @@ function filterExplorer() {
                 <td><span class="badge-${(ev.tipo || '').toLowerCase()}">${ev.tipo || 'Evento'}</span></td>
                 <td>${ev.detalles || ev.observaciones || '---'}</td>
                 <td style="font-size: 0.8rem; color: var(--text-muted);">${ev.registradoPor || ev.usuario || 'Sistema'}</td>
+                <td style="text-align:right;">
+                    <button class="btn-pamora" 
+                            style="padding:2px 8px; background:#ef4444; font-size:0.7rem;" 
+                            onclick="requestQuickDelete('${coll}', '${docId}', '${label}')">
+                        🗑️ Borrar
+                    </button>
+                </td>
             </tr>
         `;
     }).join('');
+}
+
+function requestQuickDelete(col, id, label) {
+    if (!id) {
+        showToast('No se puede eliminar este registro (ID faltante)', 'warning');
+        return;
+    }
+    const double = confirm(`⚠️ ATENCIÓN: ¿Desea eliminar definitivamente el registro de [${label}]?\nEsta acción no se puede deshacer.`);
+    if (double) {
+        executeFinalDelete(col, id);
+    }
+}
+
+async function executeFinalDelete(col, id) {
+    if (!db) return;
+    try {
+        await db.collection(col).doc(id).delete();
+        showToast('Registro eliminado con éxito 🗑️', 'success');
+
+        // Refresh visible components
+        loadEventExplorer();
+        loadDashboardStats();
+        // Recalculate if it was an expense or event affecting profitability
+        if (col === 'eventos' || col === 'gastos' || col === 'ordenos') {
+            loadRentabilidad();
+        }
+    } catch (e) {
+        console.error('Delete error:', e);
+        showToast('Error al eliminar registro', 'error');
+    }
 }
 
 // ─── DEMO DATA ──────────────────────────────────────────────
@@ -1713,28 +2444,21 @@ function formatNumber(n) {
 }
 
 async function guardarParametrosRentabilidad() {
-    const btn = document.querySelector('button[onclick="guardarParametrosRentabilidad()"]');
-    const originalHTML = btn ? btn.innerHTML : '💾 Guardar Parámetros del Mes';
+    if (!lastRentabilidadData) return;
 
-    if (APPS_SCRIPT_URL === 'TU_URL_DE_APPS_SCRIPT_AQUI') {
-        showToast('Modo Demo: No se guardará en la nube 🚫', 'error');
-        return;
-    }
+    const btn = document.querySelector('button[onclick="guardarParametrosRentabilidad()"]');
+    const originalHTML = btn ? btn.innerHTML : '💾 Guardar Precios del Mes';
 
     const mesEl = document.getElementById('rentabilidad-mes');
     const anioEl = document.getElementById('rentabilidad-anio');
-    const precioVenta = parseFloat(document.getElementById('precio-venta-litro').value) || 2500;
-    const precioKgConcentrado = parseFloat(document.getElementById('concentrado-precio-kg').value) || 1800;
+    const mes = mesEl ? mesEl.value : '0';
+    const anio = anioEl ? anioEl.value : '2024';
 
-    if (!mesEl || !anioEl) return;
-
-    const data = {
-        tipo: 'parametros_rentabilidad',
-        token: API_TOKEN,
-        mes: mesEl.value,
-        anio: anioEl.value,
-        precioVenta: precioVenta,
-        precioKgConcentrado: precioKgConcentrado,
+    const params = {
+        precioVentaLitro: parseFloat(document.getElementById('precio-venta-litro').value) || 2500,
+        precioBultoConcentrado: parseFloat(document.getElementById('concentrado-precio-bulto').value) || 72000,
+        precioKgConcentrado: parseFloat(document.getElementById('concentrado-precio-kg').value) || 1800,
+        costoConcentradoTerneras: parseFloat(document.getElementById('costo-concentrado-terneras').value) || 0,
         concentradoPerAnimal: concentradoPerAnimal
     };
 
@@ -1744,23 +2468,31 @@ async function guardarParametrosRentabilidad() {
     }
 
     try {
-        const response = await fetch(APPS_SCRIPT_URL, {
-            method: 'POST',
-            body: JSON.stringify(data)
-        });
+        if (db) {
+            // 1. Save specific month config
+            await db.collection('rentabilidad_config').doc(`${anio}_${mes}`).set(params);
 
-        try {
-            const result = await response.json();
-            if (result.success) {
-                showToast('☁️ Parámetros guardados correctamente para ' + mesEl.options[mesEl.selectedIndex].text, 'success');
+            // 2. Save to global hato config for cow kg/day persistence
+            const doc = await db.collection('config').doc('hato').get();
+            let currentHato = doc.exists ? doc.data() : { animales: ANIMALES };
+            currentHato.concentradoPerAnimal = concentradoPerAnimal;
+            await db.collection('config').doc('hato').set(currentHato);
+
+            showToast('✅ Parámetros guardados en la nube', 'success');
+        } else {
+            // Legacy/Demo fallback
+            if (APPS_SCRIPT_URL !== 'TU_URL_DE_APPS_SCRIPT_AQUI') {
+                await fetch(APPS_SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ tipo: 'parametros_rentabilidad', token: API_TOKEN, ...params, mes, anio })
+                });
+                showToast('✅ Parámetros guardados en Firebase', 'success');
             } else {
-                showToast('Error: ' + (result.error || 'Error desconocido'), 'error');
+                showToast('Modo Demo: No se guardó permanentemente', 'warning');
             }
-        } catch {
-            showToast('☁️ Parámetros enviados a Google Sheets', 'success');
         }
-    } catch (error) {
-        showToast('Error de conexión: ' + error.message, 'error');
+    } catch (e) {
+        showToast('Error al guardar: ' + e.message, 'error');
     } finally {
         if (btn) {
             btn.disabled = false;

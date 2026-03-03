@@ -60,11 +60,11 @@ body::before {
 
 /* ─── Header & Notifications ───────────────────────────── */
 .app-header {
-  background: rgba(10, 15, 10, 0.85);
-  /* Darker for better contrast */
+  background: #0a0f0a;
+  /* Unified solid background to match logo */
   backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--glass-border);
-  padding: 16px 24px;
+  padding: 12px 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -92,7 +92,6 @@ body::before {
   background-clip: text;
   -webkit-text-fill-color: transparent;
   letter-spacing: -1.5px;
-  text-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
 }
 
 @media (max-width: 768px) {
@@ -486,6 +485,30 @@ body::before {
 
 .tab-panel.active {
   display: block;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── App Shell & Layout ────────────────────────────────── */
+.app-layout {
+  display: none;
+  /* Hidden by default */
+}
+
+.app-layout.active {
+  display: block;
+  /* Visible when logged in */
+  animation: fadeIn 0.4s ease-out;
 }
 
 @keyframes fadeIn {

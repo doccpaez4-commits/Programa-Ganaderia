@@ -39,7 +39,7 @@
   <div id="loading-overlay" class="loading-overlay">
     <div class="loading-content">
       <div class="spinner"></div>
-      <p>Sincronizando con la nube...</p>
+      <p>Sincronizando con Firebase...</p>
     </div>
   </div>
 
@@ -50,8 +50,10 @@
          ═══════════════════════════════════════════════════ -->
     <div id="login-screen" class="login-screen">
       <div class="login-card">
-        <div class="login-logo">🐄</div>
-        <h1 class="login-title">Pamora</h1>
+        <div class="login-logo">
+          <img src="Logo 1.png" alt="PaMora Logo" style="width: 200px; height: auto; margin-bottom: 20px;">
+        </div>
+        <h1 class="login-title">PaMora</h1>
         <p class="login-subtitle">Sistema de Gestión Ganadera</p>
 
         <div id="login-error" class="login-error"></div>
@@ -83,7 +85,7 @@
       <!-- Header -->
       <header class="app-header">
         <div class="header-brand">
-          <span class="header-brand-icon">🐄</span>
+          <img src="Logo 2.png" alt="PaMora" style="height: 50px; width: auto; margin-right: 15px;">
           <h1 class="header-brand-text">PaMora Leche</h1>
         </div>
         <div class="header-user">
@@ -124,6 +126,9 @@
         </button>
         <button class="nav-tab" data-tab="rentabilidad" id="tab-rentabilidad">
           <span>📊</span> Rentabilidad
+        </button>
+        <button class="nav-tab" data-tab="mi-hato" id="tab-mi-hato" onclick="loadHerdInventory()">
+          <span>🐄</span> Mi Hato
         </button>
         <button class="nav-tab" data-tab="gestacion" id="tab-gestacion" style="display: none;">
           <span>🐄</span> Gestación
@@ -316,7 +321,7 @@
               <div id="ordeno-success" class="sync-success hidden">
                 <div class="sync-success-icon">☁️</div>
                 <div class="sync-success-text">Datos guardados en la nube</div>
-                <div class="sync-success-sub">Sincronizado con Google Sheets</div>
+                <div class="sync-success-sub">Sincronizado con Firebase</div>
               </div>
 
               <button type="submit" id="ordeno-submit-btn" class="btn-pamora mt-3">
@@ -476,7 +481,7 @@
               <div id="evento-success" class="sync-success hidden">
                 <div class="sync-success-icon">☁️</div>
                 <div class="sync-success-text">Evento registrado en la nube</div>
-                <div class="sync-success-sub">Sincronizado con Google Sheets</div>
+                <div class="sync-success-sub">Sincronizado con Firebase</div>
               </div>
 
               <button type="submit" class="btn-pamora mt-3">
@@ -587,36 +592,83 @@
             </div>
           </div>
 
-          <!-- Concentrado Settings Card -->
-          <div class="card-pamora mb-3" style="max-width: 640px;">
-            <div class="card-title">🌾 Configuración de Concentrado</div>
+          <!-- Parametros Contables -->
+          <div class="card-pamora mb-3">
+            <div class="card-title">💵 Parámetros Contables del Mes</div>
             <div class="row g-3">
-              <div class="col-6">
-                <label class="form-label">Precio / kg ($)</label>
-                <input type="number" id="concentrado-precio-kg" class="form-control" min="0" step="100" value="1800"
-                  onchange="recalcRentabilidad()">
+              <div class="col-md-3">
+                <label class="form-label">🥛 Precio Litro (Pago Carro)</label>
+                <div class="input-group">
+                  <span class="input-group-text">$</span>
+                  <input type="number" id="precio-venta-litro" class="form-control form-control-lg" min="0" step="100"
+                    value="2500" onchange="recalcRentabilidad()">
+                </div>
               </div>
-              <div class="col-6">
-                <label class="form-label">Precio venta / litro ($)</label>
-                <input type="number" id="precio-venta-litro" class="form-control" min="0" step="100" value="2500"
-                  onchange="recalcRentabilidad()">
+              <div class="col-md-3">
+                <label class="form-label">🌾 Bulto Concentrado (40kg)</label>
+                <div class="input-group">
+                  <span class="input-group-text">$</span>
+                  <input type="number" id="concentrado-precio-bulto" class="form-control form-control-lg" min="0"
+                    step="500" value="72000" oninput="updatePrecioPorKg()">
+                </div>
               </div>
+              <div class="col-md-3">
+                <label class="form-label">💲 Costo por kg (Calculado)</label>
+                <input type="number" id="concentrado-precio-kg" class="form-control form-control-lg" readOnly
+                  style="opacity: 0.7;">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">👶 Conc. Terneras (Mes)</label>
+                <div class="input-group">
+                  <span class="input-group-text">$</span>
+                  <input type="number" id="costo-concentrado-terneras" class="form-control form-control-lg" min="0"
+                    step="5000" value="0" onchange="recalcRentabilidad()">
+                </div>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">🏠 Mantenimiento Otros</label>
+                <div class="input-group">
+                  <span class="input-group-text">$</span>
+                  <input type="number" id="costo-mantenimiento-no-prod" class="form-control" min="0" step="1000"
+                    value="50000" onchange="recalcRentabilidad()">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Individual Cow Diets -->
+          <div class="card-pamora mb-3">
+            <div class="card-title">🐄 Consumo de Concentrado Individual (kg/día)</div>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 15px;">
+              Ingrese los kg diarios que consume cada vaca en producción para el análisis real.
+            </p>
+            <div id="grid-dietas-animales" class="animal-grid">
+              <!-- Dynamically populated by buildDietInputs() -->
+              <div class="text-center w-100 p-4">Cargando lista de vacas...</div>
             </div>
             <div class="mt-3 text-end">
               <button class="btn-pamora" onclick="guardarParametrosRentabilidad()"
-                style="font-size: 0.9rem; padding: 6px 15px;">
-                💾 Guardar Parámetros del Mes
+                style="background: var(--accent-gradient);">
+                💾 Guardar Dietas y Parámetros
               </button>
             </div>
           </div>
 
           <div id="reporte-container">
 
-            <!-- Herd Verdict Banner -->
-            <div id="hato-veredicto" class="card-pamora mb-3" style="text-align:center; padding: 20px;">
-              <div style="font-size: 2rem;" id="veredicto-emoji">⏳</div>
-              <div style="font-size: 1.125rem; font-weight: 700;" id="veredicto-texto">Calculando...</div>
-              <div style="font-size: 0.8125rem; color: var(--text-muted);" id="veredicto-detalle"></div>
+            <!-- Herd Verdict Banner & Semaphore -->
+            <div id="hato-veredicto" class="card-pamora mb-3 d-flex align-items-center gap-4" style="padding: 25px;">
+              <div id="semaforo-circulo"
+                style="width: 80px; height: 80px; border-radius: 50%; background: #ccc; box-shadow: 0 0 20px rgba(0,0,0,0.3); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 2rem;">
+                ⏳</div>
+              <div class="text-start">
+                <div style="font-size: 0.8rem; color: #f59e0b; font-weight: 700; margin-bottom: 2px;">🔍 AUDITORÍA DE
+                  RENTABILIDAD PROYECTADA (REAL)</div>
+                <div style="font-size: 1.25rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;"
+                  id="veredicto-texto">Analizando...</div>
+                <div style="font-size: 0.9rem; color: #a1a1aa; margin-top: 5px;" id="veredicto-detalle"></div>
+                <div style="margin-top: 10px;" id="veredicto-badge"></div>
+              </div>
             </div>
 
             <!-- KPI Cards -->
@@ -671,8 +723,70 @@
 
             <!-- AI Analysis Card -->
             <div class="card-pamora mt-3" id="analisis-card" style="display:none;">
-              <div class="card-title">🧠 Análisis del Mes</div>
-              <div id="analisis-texto" style="line-height:1.8; font-size:0.95rem; color:#e2e8f0;"></div>
+              <div class="card-title">🧠 Análisis e Interpretación Contable</div>
+              <div id="analisis-texto" style="line-height:1.8; font-size:0.95rem; color:#e2e8f0; padding: 10px;"></div>
+            </div>
+
+            <!-- Investor Calculator Card -->
+            <div class="card-pamora mt-3">
+              <div class="card-title d-flex justify-content-between align-items-center">
+                🤝 Liquidación para Inversionistas
+                <select id="investor-percent" class="form-select" style="width: 150px; font-size: 0.85rem;"
+                  onchange="recalcRentabilidad()">
+                  <option value="0.10">10% de utilidad</option>
+                  <option value="0.25">25% de utilidad</option>
+                  <option value="0.50" selected>50% de utilidad</option>
+                  <option value="0.75">75% de utilidad</option>
+                </select>
+              </div>
+              <div class="p-2 mb-2" style="background: rgba(255,255,255,0.03); border-radius: 8px;">
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px;">
+                  Cálculo basado en <strong>Ganancia Real</strong> (Ingreso Bruto vacas - Costo Concentrado vacas).
+                </p>
+                <div class="row text-center">
+                  <div class="col-4">
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">Base Liquidable</div>
+                    <div style="font-size: 1.1rem; font-weight: 700;" id="investor-base">$0</div>
+                  </div>
+                  <div class="col-4"
+                    style="border-left: 1px solid rgba(255,255,255,0.1); border-right: 1px solid rgba(255,255,255,0.1);">
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">Participación</div>
+                    <div style="font-size: 1.1rem; font-weight: 700; color: var(--text-accent);"
+                      id="investor-display-percent">50%</div>
+                  </div>
+                  <div class="col-4">
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">Total a Pagar</div>
+                    <div style="font-size: 1.25rem; font-weight: 800; color: #4ade80;" id="investor-total">$0</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Detailed Financial Breakdown Card -->
+            <div class="card-pamora mt-3">
+              <div class="card-title">🧾 Flujo de Caja Detallado</div>
+              <div class="table-wrapper">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Concepto / Categoría</th>
+                      <th>Detalle</th>
+                      <th>Valor</th>
+                      <th>% sobre Ingresos</th>
+                    </tr>
+                  </thead>
+                  <tbody id="financial-breakdown-tbody">
+                    <!-- Dinámico -->
+                  </tbody>
+                  <tfoot>
+                    <tr style="border-top: 2px solid var(--text-accent); font-weight: 800;">
+                      <td colspan="2" class="text-end">MARGEN NETO FINAL:</td>
+                      <td id="breakdown-total-neto">$0</td>
+                      <td id="breakdown-total-perc">0%</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
             </div>
 
             <div class="card-pamora mt-3">
@@ -713,7 +827,82 @@
         </div>
 
 
-        <!-- ═══ PANEL: EXPLORADOR DE EVENTOS (Admin) ═══ -->
+        <!-- ═══ PANEL: MI HATO (CENSO) ═══ -->
+        <div id="panel-mi-hato" class="tab-panel">
+          <div class="section-header d-flex justify-content-between align-items-center mb-4">
+            <div>
+              <h1 class="section-title">🐄 Mi Hato (Inventario)</h1>
+              <p class="section-subtitle">Censo dinámico y clasificación productiva del ganado</p>
+            </div>
+            <div class="d-flex gap-2">
+              <button class="btn-pamora" style="background: var(--accent-gradient); font-weight: 700;"
+                onclick="openAddAnimalModal()">
+                ➕ Nuevo Animal
+              </button>
+              <button class="btn-pamora btn-secondary" style="background: #ef4444;" onclick="seedInitialHerd()">
+                🚀 Carga Inicial
+              </button>
+              <button class="btn-pamora btn-secondary" style="background: #10b981;"
+                onclick="exportHerdInventoryExcel()">
+                📥 Descargar Censo
+              </button>
+              <button class="btn-pamora btn-secondary" onclick="openImportExcelModal()">
+                📊 Importar Excel
+              </button>
+              <button class="btn-pamora" onclick="loadHerdInventory()">
+                🔄 Actualizar Censo
+              </button>
+            </div>
+          </div>
+
+          <div class="row mb-4">
+            <div class="col-md-4">
+              <div class="card-pamora text-center">
+                <div style="font-size: 0.8rem; color: var(--text-muted);">Total Hato</div>
+                <div style="font-size: 1.5rem; font-weight: 700;" id="censo-total">0</div>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="card-pamora text-center">
+                <div style="font-size: 0.8rem; color: var(--text-muted);">En Producción</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #4ade80;" id="censo-produccion">0</div>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="card-pamora text-center">
+                <div style="font-size: 0.8rem; color: var(--text-muted);">Secas / Novillas</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #f59e0b;" id="censo-no-productivo">0</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-pamora">
+            <div class="table-responsive">
+              <table class="table-pamora">
+                <thead>
+                  <tr>
+                    <th>ID Animal</th>
+                    <th>Nombre</th>
+                    <th>Raza</th>
+                    <th>Fecha Nac.</th>
+                    <th>Padre</th>
+                    <th>Madre</th>
+                    <th>Registro</th>
+                    <th>Estado Actual</th>
+                    <th>Baja (Causa)</th>
+                    <th style="width: 50px;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="hato-inventory-tbody" style="font-size: 0.9rem;">
+                  <tr>
+                    <td colspan="9" class="text-center" style="padding: 30px;">Cargando censo dinámico...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <div id="panel-explorador" class="tab-panel">
           <span class="back-link" onclick="switchTab('inicio')">← Volver al inicio</span>
           <div class="section-header">
@@ -756,6 +945,7 @@
                     <th>Tipo de Evento</th>
                     <th>Detalles / Observaciones</th>
                     <th>Registrado por</th>
+                    <th style="text-align:right;">⚙️</th>
                   </tr>
                 </thead>
                 <tbody id="explorer-tbody">
@@ -885,6 +1075,14 @@
         </div>
 
       </main>
+
+      <!-- Footer -->
+      <footer class="app-footer mt-5 pb-4 text-center">
+        <p style="font-size: 0.75rem; color: var(--text-muted); opacity: 0.6;">
+          Desarrollado por <strong>C. D Páez Mora</strong> y <strong>J. M Páez Mora</strong> en
+          <strong>Antigravity</strong>
+        </p>
+      </footer>
     </div>
 
   </div>
@@ -900,6 +1098,166 @@
   <!-- App Logic -->
   <script src="app.js"></script>
   <script src="report-pdf.js"></script>
+  <!-- Modal: Nuevo Animal -->
+  <div id="modal-add-animal" class="modal-pamora-overlay" style="display:none;">
+    <div class="modal-pamora-content" style="max-width: 500px;">
+      <h3 class="mb-3">➕ Registrar Nuevo Animal</h3>
+      <div class="row g-2">
+        <div class="col-md-4 mb-2">
+          <label class="form-label">ID Animal</label>
+          <input type="text" id="add-animal-id" class="form-control" placeholder="Ej: 001">
+        </div>
+        <div class="col-md-8 mb-2">
+          <label class="form-label">Nombre</label>
+          <input type="text" id="add-animal-name" class="form-control" placeholder="Ej: Diana">
+        </div>
+      </div>
+      <div class="row g-2">
+        <div class="col-md-6 mb-2">
+          <label class="form-label">Categoría</label>
+          <select id="add-animal-category" class="form-select">
+            <option value="Vaca (Producción)">Vaca (Producción)</option>
+            <option value="Vaca (Secando)">Vaca (Secando)</option>
+            <option value="Novilla">Novilla</option>
+            <option value="Ternera">Ternera</option>
+            <option value="Ternero">Ternero</option>
+          </select>
+        </div>
+        <div class="col-md-6 mb-2">
+          <label class="form-label">Raza</label>
+          <input type="text" id="add-animal-breed" class="form-control" placeholder="Jersey">
+        </div>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Fecha de Nacimiento</label>
+        <input type="date" id="add-animal-birth" class="form-control">
+      </div>
+      <div class="row g-2">
+        <div class="col-md-6 mb-2">
+          <label class="form-label">Padre</label>
+          <input type="text" id="add-animal-father" class="form-control">
+        </div>
+        <div class="col-md-6 mb-2">
+          <label class="form-label">Madre</label>
+          <input type="text" id="add-animal-mother" class="form-control">
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Registro / Notas</label>
+        <input type="text" id="add-animal-register" class="form-control">
+      </div>
+      <div class="d-flex gap-2 justify-content-end">
+        <button class="btn-pamora btn-secondary" onclick="closeAddAnimalModal()">Cancelar</button>
+        <button class="btn-pamora" onclick="saveNewAnimal()">💾 Registrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Confirmación Doble (Eliminar) -->
+  <div id="modal-confirm-delete" class="modal-pamora-overlay" style="display:none;">
+    <div class="modal-pamora-content" style="max-width: 400px; border: 2px solid #ef4444;">
+      <h3 class="mb-2 text-danger">⚠️ ¿Eliminar Registro?</h3>
+      <p id="delete-info-text" style="font-size: 0.9rem;" class="mb-4"></p>
+
+      <div class="mb-4">
+        <label style="font-size: 0.8rem; color: #ef4444; font-weight: 700;">Para confirmar, escriba ELIMINAR en
+          mayúsculas:</label>
+        <input type="text" id="delete-confirm-input" class="form-control text-center" placeholder="ELIMINAR"
+          style="border-color: #ef4444;">
+      </div>
+
+      <div class="d-flex gap-2 justify-content-end">
+        <button class="btn-pamora btn-secondary" onclick="closeDeleteModal()">Cancelar</button>
+        <button id="btn-final-delete" class="btn-pamora" style="background: #ef4444;" onclick="executeFinalDelete()">🗑️
+          Eliminar Permanentemente</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Importar desde Excel -->
+  <div id="modal-import-excel" class="modal-pamora-overlay" style="display:none;">
+    <div class="modal-pamora-content" style="max-width: 500px;">
+      <h3 class="mb-2">📊 Importar Hato desde Excel</h3>
+      <p style="font-size: 0.8rem; color: var(--text-muted);" class="mb-3">
+        Copia tus columnas de Excel (Nombre, Raza, Categoría) y pégalas abajo.<br>
+        *La categoría debe ser: Vaca, Novilla o Ternera.
+      </p>
+
+      <div class="mb-3">
+        <textarea id="import-excel-data" class="form-control" rows="8"
+          placeholder="Ejemplo:&#10;Yohana	Jersey	Vaca&#10;Morocha	Pardo	Novilla"
+          style="font-family: monospace; font-size: 0.8rem; background: rgba(0,0,0,0.2);"></textarea>
+      </div>
+
+      <div class="d-flex gap-2 justify-content-end">
+        <button class="btn-pamora btn-secondary" onclick="closeImportExcelModal()">Cancelar</button>
+        <button class="btn-pamora" onclick="processExcelImport()">🚀 Iniciar Importación</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Editar Animal (Censo) -->
+  <div id="modal-edit-animal" class="modal-pamora-overlay" style="display:none;">
+    <div class="modal-pamora-content" style="max-width: 500px;">
+      <h3 id="edit-animal-title" class="mb-3">🐄 Editar Datos de Animal</h3>
+      <input type="hidden" id="edit-animal-name-hidden">
+
+      <div class="row g-2">
+        <div class="col-md-4 mb-2">
+          <label class="form-label">ID Animal</label>
+          <input type="text" id="edit-animal-id" class="form-control">
+        </div>
+        <div class="col-md-8 mb-2">
+          <label class="form-label">Nombre</label>
+          <input type="text" id="edit-animal-name" class="form-control" readOnly>
+        </div>
+      </div>
+
+      <div class="row g-2">
+        <div class="col-md-6 mb-2">
+          <label class="form-label">Categoría</label>
+          <select id="edit-animal-category" class="form-select">
+            <option value="Vaca (Producción)">Vaca (Producción)</option>
+            <option value="Vaca (Secando)">Vaca (Secando)</option>
+            <option value="Novilla">Novilla</option>
+            <option value="Ternera">Ternera</option>
+            <option value="Ternero">Ternero</option>
+          </select>
+        </div>
+        <div class="col-md-6 mb-2">
+          <label class="form-label">Raza</label>
+          <input type="text" id="edit-animal-breed" class="form-control">
+        </div>
+      </div>
+
+      <div class="mb-2">
+        <label class="form-label">Fecha de Nacimiento</label>
+        <input type="date" id="edit-animal-birth" class="form-control">
+      </div>
+
+      <div class="row g-2">
+        <div class="col-md-6 mb-2">
+          <label class="form-label">Padre</label>
+          <input type="text" id="edit-animal-father" class="form-control">
+        </div>
+        <div class="col-md-6 mb-2">
+          <label class="form-label">Madre</label>
+          <input type="text" id="edit-animal-mother" class="form-control">
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Registro / Notas</label>
+        <input type="text" id="edit-animal-register" class="form-control">
+      </div>
+
+      <div class="d-flex gap-2 justify-content-end">
+        <button class="btn-pamora btn-secondary" onclick="closeEditAnimalModal()">Cancelar</button>
+        <button class="btn-pamora" onclick="saveAnimalMetadata()">💾 Guardar Cambios</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 
 </html>
