@@ -959,6 +959,9 @@ function loadGestacion(insem) {
             <td><strong>${formatDate(p.fParto)}</strong></td>
             <td>${diasBadge}</td>
             <td>${statusBadge}</td>
+            <td>
+                <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditInsemModal('${p.id || ''}')" title="Editar">📝</button>
+            </td>
         </tr>`;
     });
 
@@ -2390,7 +2393,7 @@ function requestQuickDelete(col, id, label) {
         showToast('No se puede eliminar este registro (ID faltante)', 'warning');
         return;
     }
-    const double = confirm(`⚠️ ATENCIÓN: ¿Desea eliminar definitivamente el registro de [${label}]?\nEsta acción no se puede deshacer.`);
+    const double = confirm(`⚠️ ¿Desea eliminar definitivamente el registro de [${label}]?`);
     if (double) {
         executeFinalDelete(col, id);
     }
@@ -2400,18 +2403,22 @@ async function executeFinalDelete(col, id) {
     if (!db) return;
     try {
         await db.collection(col).doc(id).delete();
-        showToast('Registro eliminado con éxito 🗑️', 'success');
+        showToast('Registro eliminado 🗑️', 'success');
 
-        // Refresh visible components
-        loadEventExplorer();
+        // Refresh EVERYTHING relevant automatically
+        loadVacunaciones();
+        loadHistorial();
         loadDashboardStats();
-        // Recalculate if it was an expense or event affecting profitability
+        if (typeof loadGestation === 'function') {
+            const insem = await fetchFromSheets('inseminaciones');
+            loadGestacion(insem);
+        }
         if (col === 'eventos' || col === 'gastos' || col === 'ordenos') {
             loadRentabilidad();
         }
     } catch (e) {
         console.error('Delete error:', e);
-        showToast('Error al eliminar registro', 'error');
+        showToast('Error al eliminar', 'error');
     }
 }
 
@@ -2944,7 +2951,11 @@ async function saveEditInseminacion() {
         showToast('Inseminación actualizada ✅', 'success');
         closeEditInsemModal();
         loadHistorial();
-        loadGestacionPanel();
+
+        // Comprehensive refresh for Gestacion panel
+        const insemData = await fetchFromSheets('inseminaciones');
+        loadGestacion(insemData);
+
     } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
