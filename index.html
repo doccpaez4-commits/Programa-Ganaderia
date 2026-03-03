@@ -897,10 +897,6 @@
                 onclick="openAddAnimalModal()">
                 ➕ Nuevo Animal
               </button>
-              <button class="btn-pamora btn-secondary" style="background: #10b981;"
-                onclick="exportHerdInventoryExcel()">
-                📥 Descargar Censo
-              </button>
               <button class="btn-pamora" onclick="loadHerdInventory()">
                 🔄 Actualizar Censo
               </button>
@@ -1149,8 +1145,6 @@
               <h1 class="section-title">🐮 Control de Gestación</h1>
               <p class="section-subtitle">Monitoreo de preñeces y estimación de partos (283 días)</p>
             </div>
-            <button class="btn-pamora" onclick="seedInseminaciones()"
-              style="width:auto; padding:8px 16px; background:#8b5cf6;">🌱 Cargar Historial Insem.</button>
           </div>
 
           <div class="card pamora-card">
@@ -1369,7 +1363,126 @@
         <button class="btn-pamora" onclick="saveAnimalMetadata()">💾 Guardar Cambios</button>
       </div>
     </div>
-  </div>
+    <!-- Modal: Editar Vacunación -->
+    <div id="modal-edit-vacunacion" class="modal-pamora-overlay" style="display:none;">
+      <div class="modal-pamora-content" style="max-width: 500px;">
+        <h3 class="mb-3">📝 Editar Registro Sanitario</h3>
+        <input type="hidden" id="edit-vacu-id">
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label">Fecha</label>
+            <input type="date" id="edit-vacu-fecha" class="form-control">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Animal</label>
+            <select id="edit-vacu-animal" class="form-select"></select>
+          </div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label">Tipo</label>
+            <select id="edit-vacu-tipo" class="form-select">
+              <option value="Vacuna">Vacuna</option>
+              <option value="Purga">Purga</option>
+              <option value="Tratamiento">Tratamiento</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label">Producto</label>
+            <input type="text" id="edit-vacu-producto" class="form-control">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Observaciones</label>
+          <textarea id="edit-vacu-obs" class="form-control" rows="2"></textarea>
+        </div>
+        <div class="d-flex gap-2 justify-content-end">
+          <button class="btn-pamora btn-secondary" onclick="closeEditVacuModal()">Cancelar</button>
+          <button class="btn-pamora" onclick="saveEditVacunacion()">💾 Guardar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Editar Inseminación -->
+    <div id="modal-edit-inseminacion" class="modal-pamora-overlay" style="display:none;">
+      <div class="modal-pamora-content" style="max-width: 500px;">
+        <h3 class="mb-3">📝 Editar Inseminación</h3>
+        <input type="hidden" id="edit-insem-id">
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label">Fecha</label>
+            <input type="date" id="edit-insem-fecha" class="form-control">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Animal</label>
+            <select id="edit-insem-animal" class="form-select"></select>
+          </div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label">Resultado</label>
+            <select id="edit-insem-estado" class="form-select">
+              <option value="Pendiente">⏳ Pendiente</option>
+              <option value="Preñada">✅ Preñada</option>
+              <option value="No Preñada">❌ No Preñada</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label">Toro</label>
+            <input type="text" id="edit-insem-toro" class="form-control">
+          </div>
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-6">
+            <label class="form-label">F. Est. Parto</label>
+            <input type="text" id="edit-insem-parto" class="form-control">
+          </div>
+        </div>
+        <div class="d-flex gap-2 justify-content-end">
+          <button class="btn-pamora btn-secondary" onclick="closeEditInsemModal()">Cancelar</button>
+          <button class="btn-pamora" onclick="saveEditInseminacion()">💾 Guardar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Editar Nacimiento -->
+    <div id="modal-edit-nacimiento" class="modal-pamora-overlay" style="display:none;">
+      <div class="modal-pamora-content" style="max-width: 500px;">
+        <h3 class="mb-3">📝 Editar Nacimiento</h3>
+        <input type="hidden" id="edit-nac-id">
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label">Fecha</label>
+            <input type="date" id="edit-nac-fecha" class="form-control">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Madre</label>
+            <select id="edit-nac-madre" class="form-select"></select>
+          </div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label">Nombre Cría</label>
+            <input type="text" id="edit-nac-cria" class="form-control">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Sexo</label>
+            <select id="edit-nac-sexo" class="form-select">
+              <option value="Hembra">Hembra</option>
+              <option value="Macho">Macho</option>
+            </select>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Peso (kg)</label>
+          <input type="number" id="edit-nac-peso" class="form-control">
+        </div>
+        <div class="d-flex gap-2 justify-content-end">
+          <button class="btn-pamora btn-secondary" onclick="closeEditNacModal()">Cancelar</button>
+          <button class="btn-pamora" onclick="saveEditNacimiento()">💾 Guardar</button>
+        </div>
+      </div>
+    </div>
 
 </body>
 

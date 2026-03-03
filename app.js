@@ -184,10 +184,15 @@ async function bootApp(userName) {
     buildAnimalInputs('ordeno-animal-grid', 'ordeno');
     buildAnimalSelectors();
     renderConfigAnimales();
-    loadDashboardStats();
-    updateNotificationBadge();
     loadNotificationsFromFirebase();
     checkPartoAlerts();
+
+    // AUTOMATIC SEEDING (Duplicate Prevention Included)
+    if (db) {
+        updateSyncProgress(90, 'Verificando historiales...');
+        await seedVacunaciones(true); // true = silent/auto mode
+        await seedInseminaciones(true);
+    }
 
     updateSyncProgress(100, 'Sincronización terminada ✅');
 
@@ -777,7 +782,10 @@ async function fetchFromSheets(accion, params = {}) {
                         'nacimientos': 'Nacimiento',
                         'celos': 'Celo'
                     };
-                    if (data.tipo === tipoMap[accion]) filas.push(data);
+                    if (data.tipo === tipoMap[accion]) {
+                        data.id = doc.id;
+                        filas.push(data);
+                    }
                 } else {
                     filas.push(data);
                 }
@@ -2245,14 +2253,14 @@ async function loadHistorial() {
             celoTbody.innerHTML = celos.filas.map(f => {
                 const badgeClass = f.intensidad === 'Fuerte' ? 'badge-danger' :
                     f.intensidad === 'Leve' ? 'badge-success' : 'badge-warning';
-                return `< tr >
+                return `<tr>
           <td>${formatDate(f.fecha)}</td>
           <td>${f.animal}</td>
           <td><span class="badge-pamora ${badgeClass}">${f.intensidad}</span></td>
           <td>${f.duracion} h</td>
           <td>${f.accionItem}</td>
           <td>${f.observaciones || '—'}</td>
-        </tr > `;
+        </tr>`;
             }).join('');
         }
     }
@@ -2271,8 +2279,11 @@ async function loadHistorial() {
           <td><strong>🐮 ${f.animal}</strong></td>
           <td>${f.toro}</td>
           <td>${f.tecnico}</td>
-          <td>${f.observaciones || '—'}</td>
+          <td><span style="font-size:0.85rem; color:var(--text-muted);">${f.observaciones || '—'}</span></td>
           <td><span class="badge-pamora ${badgeClass}">${f.estado}</span></td>
+          <td>
+            <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditInsemModal('${f.id || ''}')" title="Editar">📝</button>
+          </td>
         </tr>`;
             }).join('');
         }
@@ -2282,17 +2293,20 @@ async function loadHistorial() {
     const nacTbody = document.getElementById('historial-nac-tbody');
     if (nacTbody) {
         if (!nac?.filas?.length) {
-            nacTbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:30px;color:var(--text-muted);">Sin registros</td></tr>';
+            nacTbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:30px;color:var(--text-muted);">Sin registros</td></tr>';
         } else {
             nacTbody.innerHTML = nac.filas.map(f => `
-                < tr >
+                <tr>
           <td>${formatDate(f.fecha)}</td>
           <td>${f.madre}</td>
           <td>${f.cria}</td>
           <td>${f.sexo}</td>
           <td>${f.peso} kg</td>
           <td>${f.observaciones || '—'}</td>
-        </tr > `).join('');
+          <td>
+            <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditNacModal('${f.id || ''}')" title="Editar">📝</button>
+          </td>
+        </tr>`).join('');
         }
     }
 }
@@ -2712,7 +2726,12 @@ async function loadVacunaciones() {
                 <td style="font-size:0.85rem;">${d.dosis || '—'}</td>
                 <td style="font-size:0.85rem;">${d.administrador || '—'}</td>
                 <td style="font-size:0.8rem; color:var(--text-muted);">${d.observaciones || ''}</td>
-                <td><button class="btn-pamora" style="padding:3px 7px; font-size:0.7rem; background:#ef4444;" onclick="requestQuickDelete('vacunaciones','${doc.id}','${(d.tratamiento || '').replace(/'/g, "\\'")}')">🗑</button></td>
+                <td>
+                  <div class="d-flex gap-1">
+                    <button class="btn-pamora" style="padding:3px 7px; font-size:0.75rem;" onclick="openEditVacuModal('${doc.id}')">📝</button>
+                    <button class="btn-pamora" style="padding:3px 7px; font-size:0.75rem; background:#ef4444;" onclick="requestQuickDelete('vacunaciones','${doc.id}','${(d.tratamiento || '').replace(/'/g, "\\'")}')">🗑</button>
+                  </div>
+                </td>
             </tr>`);
         });
         tbody.innerHTML = rows.join('');
@@ -2746,9 +2765,9 @@ async function handleVacunacion() {
     } catch (e) { showToast('Error al guardar: ' + e.message, 'error'); }
 }
 
-async function seedVacunaciones() {
-    if (!db) { showToast('Modo demo', 'warning'); return; }
-    if (!confirm('¿Cargar el historial de vacunaciones y purgas (7 registros)?')) return;
+async function seedVacunaciones(silent = false) {
+    if (!db) return;
+    if (!silent && !confirm('¿Cargar el historial de vacunaciones y purgas?')) return;
 
     const data = [
         { fecha: '2025-05-21', animal: 'Conny', tipo: 'Vacuna', tratamiento: 'Vacuna Bruselosis/Aftosa', dosis: '', lote: '', administrador: 'Umata', observaciones: '' },
@@ -2761,63 +2780,213 @@ async function seedVacunaciones() {
     ];
 
     try {
-        showToast('Cargando historial sanitario...', 'info');
         const batch = db.batch();
-        data.forEach(d => batch.set(db.collection('vacunaciones').doc(), { ...d, addedAt: firebase.firestore.FieldValue.serverTimestamp() }));
-        await batch.commit();
-        showToast(`✅ ${data.length} registros sanitarios cargados`, 'success');
-        loadVacunaciones();
-    } catch (e) { showToast('Error: ' + e.message, 'error'); }
+        let added = 0;
+        for (const d of data) {
+            // Check for duplicate by Animal + Fecha + Tratamiento
+            const snap = await db.collection('vacunaciones')
+                .where('animal', '==', d.animal)
+                .where('fecha', '==', d.fecha)
+                .where('tratamiento', '==', d.tratamiento)
+                .get();
+
+            if (snap.empty) {
+                batch.set(db.collection('vacunaciones').doc(), { ...d, addedAt: firebase.firestore.FieldValue.serverTimestamp() });
+                added++;
+            }
+        }
+        if (added > 0) {
+            await batch.commit();
+            if (!silent) showToast(`✅ ${added} registros cargados`, 'success');
+            loadVacunaciones();
+        }
+    } catch (e) { if (!silent) console.error('Seed error:', e); }
 }
 
 // ─── SEMILLA INSEMINACIONES HISTÓRICAS ────────────────────────────────────────
 
-async function seedInseminaciones() {
-    if (!db) { showToast('Modo demo', 'warning'); return; }
-    if (!confirm('¿Cargar el historial completo de inseminaciones (22 registros)?')) return;
+async function seedInseminaciones(silent = false) {
+    if (!db) return;
+    if (!silent && !confirm('¿Cargar historial completo?')) return;
 
     const data = [
-        { fecha: '2024-08-06', animal: 'Nube', toro: 'Quick Work', tecnico: 'Sin información', estado: 'Preñada', fechaEstimadaParto: '2025-05-15', observaciones: '' },
-        { fecha: '2024-08-30', animal: 'Mapi', toro: 'CINCH Angus Rojo', tecnico: 'Sin información', estado: 'Preñada', fechaEstimadaParto: '2025-06-08', observaciones: '' },
-        { fecha: '2024-09-18', animal: 'Sol', toro: 'River Red 17HO16781', tecnico: 'Sin información', estado: 'Preñada', fechaEstimadaParto: '2025-06-27', observaciones: '' },
-        { fecha: '2024-11-04', animal: 'Moli', toro: 'Holstein Rojo', tecnico: 'Orlando', estado: 'Preñada', fechaEstimadaParto: '2025-08-04', observaciones: '' },
-        { fecha: '', animal: 'Martina', toro: '', tecnico: '', estado: 'Preñada', fechaEstimadaParto: '', observaciones: 'Registro sin fecha' },
-        { fecha: '2025-06-03', animal: 'Morocha', toro: 'Altariled up-red', tecnico: 'Orlando', estado: 'No Preñada', fechaEstimadaParto: '2026-03-03', observaciones: '' },
-        { fecha: '2025-06-15', animal: 'Miel', toro: 'Galore Red Holstein rojo', tecnico: 'Orlando', estado: 'No Preñada', fechaEstimadaParto: '2026-03-15', observaciones: '' },
-        { fecha: '2025-09-08', animal: 'Dulce', toro: '', tecnico: 'Santiago', estado: 'No Preñada', fechaEstimadaParto: '2026-06-08', observaciones: 'Entra en calor el 29 de septiembre' },
-        { fecha: '2025-09-08', animal: 'Yohana', toro: '', tecnico: 'Santiago', estado: 'Preñada', fechaEstimadaParto: '2026-06-18', observaciones: '' },
-        { fecha: '2025-09-08', animal: 'Mapi', toro: '', tecnico: 'Santiago', estado: 'No Preñada', fechaEstimadaParto: '2026-06-18', observaciones: '' },
-        { fecha: '2025-09-08', animal: 'Sol', toro: '', tecnico: 'Santiago', estado: 'No Preñada', fechaEstimadaParto: '2026-06-18', observaciones: 'Se aplica hormona para entrar en calor el 26/11/2025' },
-        { fecha: '2025-09-08', animal: 'Nube', toro: '', tecnico: 'Santiago', estado: 'No Preñada', fechaEstimadaParto: '2026-06-18', observaciones: 'Se aplica hormona para entrar en calor el 26/11/2025' },
-        { fecha: '2025-09-30', animal: 'Dulce', toro: 'Toro Girolando (Hector Julio)', tecnico: '', estado: 'No Preñada', fechaEstimadaParto: '2026-07-10', observaciones: 'Tuvo un calor el 22 de Octubre' },
-        { fecha: '2025-10-17', animal: 'Moli', toro: 'Altariled up red', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-07-27', observaciones: '' },
-        { fecha: '2025-11-04', animal: 'Mandarina', toro: 'Toro don martines', tecnico: '', estado: 'Pendiente', fechaEstimadaParto: '2026-08-14', observaciones: 'Vendida' },
-        { fecha: '2025-11-12', animal: 'Mapi', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-08-22', observaciones: '' },
-        { fecha: '2025-11-16', animal: 'Dulce', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-08-26', observaciones: '' },
-        { fecha: '2025-11-30', animal: 'Martina', toro: 'Inseminación', tecnico: 'Orlando', estado: 'No Preñada', fechaEstimadaParto: '2026-09-09', observaciones: 'Vendida' },
-        { fecha: '2026-01-07', animal: 'Martina', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-10-17', observaciones: '' },
-        { fecha: '2026-02-04', animal: 'Nube', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-11-14', observaciones: 'Se aplica Gestar inyectado' },
-        { fecha: '2026-02-16', animal: 'Sol', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-11-26', observaciones: '' },
-        { fecha: '2025-09-15', animal: 'Morocha', toro: 'Toro vecina', tecnico: '', estado: 'Preñada', fechaEstimadaParto: '', observaciones: '' },
+        { fecha: '2024-08-06', animal: 'Nube', tipo: 'Inseminación', toro: 'Quick Work', tecnico: 'Sin información', estado: 'Preñada', fechaEstimadaParto: '2025-05-15', observaciones: '' },
+        { fecha: '2024-08-30', animal: 'Mapi', tipo: 'Inseminación', toro: 'CINCH Angus Rojo', tecnico: 'Sin información', estado: 'Preñada', fechaEstimadaParto: '2025-06-08', observaciones: '' },
+        { fecha: '2024-09-18', animal: 'Sol', tipo: 'Inseminación', toro: 'River Red 17HO16781', tecnico: 'Sin información', estado: 'Preñada', fechaEstimadaParto: '2025-06-27', observaciones: '' },
+        { fecha: '2024-11-04', animal: 'Moli', tipo: 'Inseminación', toro: 'Holstein Rojo', tecnico: 'Orlando', estado: 'Preñada', fechaEstimadaParto: '2025-08-04', observaciones: '' },
+        { fecha: '2025-06-03', animal: 'Morocha', tipo: 'Inseminación', toro: 'Altariled up-red', tecnico: 'Orlando', estado: 'No Preñada', fechaEstimadaParto: '2026-03-03', observaciones: '' },
+        { fecha: '2025-06-15', animal: 'Miel', tipo: 'Inseminación', toro: 'Galore Red Holstein rojo', tecnico: 'Orlando', estado: 'No Preñada', fechaEstimadaParto: '2026-03-15', observaciones: '' },
+        { fecha: '2025-09-08', animal: 'Dulce', tipo: 'Inseminación', toro: '', tecnico: 'Santiago', estado: 'No Preñada', fechaEstimadaParto: '2026-06-08', observaciones: 'Entra en calor el 29 de septiembre' },
+        { fecha: '2025-09-08', animal: 'Yohana', tipo: 'Inseminación', toro: '', tecnico: 'Santiago', estado: 'Preñada', fechaEstimadaParto: '2026-06-18', observaciones: '' },
+        { fecha: '2025-09-08', animal: 'Mapi', tipo: 'Inseminación', toro: '', tecnico: 'Santiago', estado: 'No Preñada', fechaEstimadaParto: '2026-06-18', observaciones: '' },
+        { fecha: '2025-09-08', animal: 'Sol', tipo: 'Inseminación', toro: '', tecnico: 'Santiago', estado: 'No Preñada', fechaEstimadaParto: '2026-06-18', observaciones: 'Se aplica hormona para entrar en calor el 26/11/2025' },
+        { fecha: '2025-09-08', animal: 'Nube', tipo: 'Inseminación', toro: '', tecnico: 'Santiago', estado: 'No Preñada', fechaEstimadaParto: '2026-06-18', observaciones: 'Se aplica hormona para entrar en calor el 26/11/2025' },
+        { fecha: '2025-09-30', animal: 'Dulce', tipo: 'Inseminación', toro: 'Toro Girolando (Hector Julio)', tecnico: '', estado: 'No Preñada', fechaEstimadaParto: '2026-07-10', observaciones: 'Tuvo un calor el 22 de Octubre' },
+        { fecha: '2025-10-17', animal: 'Moli', tipo: 'Inseminación', toro: 'Altariled up red', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-07-27', observaciones: '' },
+        { fecha: '2025-11-04', animal: 'Mandarina', tipo: 'Inseminación', toro: 'Toro don martines', tecnico: '', estado: 'Pendiente', fechaEstimadaParto: '2026-08-14', observaciones: 'Vendida' },
+        { fecha: '2025-11-12', animal: 'Mapi', tipo: 'Inseminación', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-08-22', observaciones: '' },
+        { fecha: '2025-11-16', animal: 'Dulce', tipo: 'Inseminación', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-08-26', observaciones: '' },
+        { fecha: '2025-11-30', animal: 'Martina', tipo: 'Inseminación', toro: 'Inseminación', tecnico: 'Orlando', estado: 'No Preñada', fechaEstimadaParto: '2026-09-09', observaciones: 'Vendida' },
+        { fecha: '2026-01-07', animal: 'Martina', tipo: 'Inseminación', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-10-17', observaciones: '' },
+        { fecha: '2026-02-04', animal: 'Nube', tipo: 'Inseminación', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-11-14', observaciones: 'Se aplica Gestar inyectado' },
+        { fecha: '2026-02-16', animal: 'Sol', tipo: 'Inseminación', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-11-26', observaciones: '' },
+        { fecha: '2026-02-18', animal: 'Moli', tipo: 'Inseminación', toro: 'Altariled up red', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-11-28', observaciones: '' },
     ];
 
     try {
-        showToast('Cargando inseminaciones históricas...', 'info');
         const batch = db.batch();
-        data.forEach(d => {
-            batch.set(db.collection('eventos').doc(), {
-                tipo: 'Inseminación',
-                fecha: d.fecha, animal: d.animal, toro: d.toro,
-                tecnico: d.tecnico, estado: d.estado,
-                fechaEstimadaParto: d.fechaEstimadaParto,
-                observaciones: d.observaciones,
-                addedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-        });
-        await batch.commit();
-        showToast(`✅ 22 inseminaciones cargadas en Firebase`, 'success');
+        let added = 0;
+        for (const d of data) {
+            const snap = await db.collection('eventos')
+                .where('animal', '==', d.animal)
+                .where('fecha', '==', d.fecha)
+                .where('tipo', '==', 'Inseminación')
+                .get();
+
+            if (snap.empty) {
+                batch.set(db.collection('eventos').doc(), { ...d, addedAt: firebase.firestore.FieldValue.serverTimestamp() });
+                added++;
+            }
+        }
+        if (added > 0) {
+            await batch.commit();
+            if (!silent) showToast(`✅ ${added} inseminaciones cargadas`, 'success');
+            loadHistorial();
+        }
+    } catch (e) { if (!silent) console.error('Seed error:', e); }
+}
+
+// ─── EDIT MODALS LOGIC ────────────────────────────────────────────────────────
+
+let currentEditVacuId = null;
+let currentEditInsemId = null;
+
+function openEditVacuModal(id) {
+    if (!db) return;
+    currentEditVacuId = id;
+    db.collection('vacunaciones').doc(id).get().then(doc => {
+        if (!doc.exists) return;
+        const d = doc.data();
+        document.getElementById('edit-vacu-id').value = id;
+        document.getElementById('edit-vacu-fecha').value = d.fecha || '';
+        document.getElementById('edit-vacu-tipo').value = d.tipo || 'Vacuna';
+        document.getElementById('edit-vacu-producto').value = d.tratamiento || '';
+        document.getElementById('edit-vacu-obs').value = d.observaciones || '';
+
+        // Populate animal select
+        const sel = document.getElementById('edit-vacu-animal');
+        sel.innerHTML = '<option value="">Todo el hato</option>' + ANIMALES.map(a => `<option value="${a}">${a}</option>`).join('');
+        sel.value = d.animal || '';
+
+        document.getElementById('modal-edit-vacunacion').style.display = 'flex';
+    });
+}
+
+function closeEditVacuModal() {
+    document.getElementById('modal-edit-vacunacion').style.display = 'none';
+}
+
+async function saveEditVacunacion() {
+    const id = document.getElementById('edit-vacu-id').value;
+    const data = {
+        fecha: document.getElementById('edit-vacu-fecha').value,
+        animal: document.getElementById('edit-vacu-animal').value,
+        tipo: document.getElementById('edit-vacu-tipo').value,
+        tratamiento: document.getElementById('edit-vacu-producto').value,
+        observaciones: document.getElementById('edit-vacu-obs').value
+    };
+
+    try {
+        await db.collection('vacunaciones').doc(id).update(data);
+        showToast('Registro actualizado ✅', 'success');
+        closeEditVacuModal();
+        loadVacunaciones();
+    } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function openEditInsemModal(id) {
+    if (!db) return;
+    currentEditInsemId = id;
+    db.collection('eventos').doc(id).get().then(doc => {
+        if (!doc.exists) return;
+        const d = doc.data();
+        document.getElementById('edit-insem-id').value = id;
+        document.getElementById('edit-insem-fecha').value = d.fecha || '';
+        document.getElementById('edit-insem-estado').value = d.estado || 'Pendiente';
+        document.getElementById('edit-insem-toro').value = d.toro || '';
+        document.getElementById('edit-insem-parto').value = d.fechaEstimadaParto || '';
+
+        const sel = document.getElementById('edit-insem-animal');
+        sel.innerHTML = ANIMALES.map(a => `<option value="${a}">${a}</option>`).join('');
+        sel.value = d.animal || '';
+
+        document.getElementById('modal-edit-inseminacion').style.display = 'flex';
+    });
+}
+
+function closeEditInsemModal() {
+    document.getElementById('modal-edit-inseminacion').style.display = 'none';
+}
+
+async function saveEditInseminacion() {
+    const id = document.getElementById('edit-insem-id').value;
+    const data = {
+        fecha: document.getElementById('edit-insem-fecha').value,
+        animal: document.getElementById('edit-insem-animal').value,
+        estado: document.getElementById('edit-insem-estado').value,
+        toro: document.getElementById('edit-insem-toro').value,
+        fechaEstimadaParto: document.getElementById('edit-insem-parto').value,
+        tipo: 'Inseminación' // Ensure it stays categorized
+    };
+
+    try {
+        await db.collection('eventos').doc(id).update(data);
+        showToast('Inseminación actualizada ✅', 'success');
+        closeEditInsemModal();
         loadHistorial();
-        if (typeof loadGestacionPanel === 'function') loadGestacionPanel();
+        loadGestacionPanel();
+    } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function openEditNacModal(id) {
+    if (!db) return;
+    db.collection('eventos').doc(id).get().then(doc => {
+        if (!doc.exists) return;
+        const d = doc.data();
+        document.getElementById('edit-nac-id').value = id;
+        document.getElementById('edit-nac-fecha').value = d.fecha || '';
+        document.getElementById('edit-nac-cria').value = d.cria || '';
+        document.getElementById('edit-nac-sexo').value = d.sexo || 'Hembra';
+        document.getElementById('edit-nac-peso').value = d.peso || '';
+
+        const sel = document.getElementById('edit-nac-madre');
+        sel.innerHTML = ANIMALES.map(a => `<option value="${a}">${a}</option>`).join('');
+        sel.value = d.madre || d.animal || '';
+
+        document.getElementById('modal-edit-nacimiento').style.display = 'flex';
+    });
+}
+
+function closeEditNacModal() {
+    document.getElementById('modal-edit-nacimiento').style.display = 'none';
+}
+
+async function saveEditNacimiento() {
+    const id = document.getElementById('edit-nac-id').value;
+    const data = {
+        fecha: document.getElementById('edit-nac-fecha').value,
+        madre: document.getElementById('edit-nac-madre').value,
+        cria: document.getElementById('edit-nac-cria').value,
+        sexo: document.getElementById('edit-nac-sexo').value,
+        peso: document.getElementById('edit-nac-peso').value,
+        tipo: 'Nacimiento'
+    };
+
+    try {
+        await db.collection('eventos').doc(id).update(data);
+        showToast('Nacimiento actualizado ✅', 'success');
+        closeEditNacModal();
+        loadHistorial();
     } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
