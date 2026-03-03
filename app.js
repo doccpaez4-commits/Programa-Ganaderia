@@ -516,31 +516,70 @@ async function checkPartoAlerts() {
     try {
         const snapshot = await db.collection('eventos')
             .where('tipo', '==', 'Inseminación')
+            .where('estado', '==', 'Preñada')
             .get();
 
         const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
         snapshot.forEach(doc => {
             const data = doc.data();
-            const fechaIns = new Date(data.fecha || data.timestamp?.toDate());
+            const fechaIns = parseAnyDate(data.fecha);
             if (!isNaN(fechaIns)) {
-                // Gestación promedio vaca: 283 días
-                const fechaParto = new Date(fechaIns);
-                fechaParto.setDate(fechaParto.getDate() + 283);
+                let fechaParto;
+                if (data.fechaEstimadaParto) {
+                    fechaParto = parseAnyDate(data.fechaEstimadaParto);
+                } else {
+                    fechaParto = new Date(fechaIns);
+                    fechaParto.setDate(fechaParto.getDate() + 283);
+                }
 
                 const diffTime = fechaParto - today;
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-                if (diffDays > 0 && diffDays <= 30) {
-                    const msg = `🤰 Recordatorio: Próximo parto para ${data.animal} aprox. el ${fechaParto.toLocaleDateString()} (en ${diffDays} días)`;
-                    // Evitar duplicar si ya existe localmente esta notificación hoy
-                    const exists = notifications.some(n => n.text === msg);
-                    if (!exists) {
-                        addNotification(msg, 'warning');
+                let notificationType = '';
+                let prefix = '';
+
+                if (diffDays === 30 || diffDays === 15 || (diffDays <= 5 && diffDays >= 0)) {
+                    prefix = diffDays <= 5 ? '🚨 CRÍTICO' : diffDays <= 15 ? '🔔 RECORDATORIO' : '📅 PRÓXIMO';
+                    const msg = `${prefix}: Parto de "${data.animal}" en ${diffDays} días (Est. ${formatDate(fechaParto)})`;
+
+                    // Solo añadir si no existe ya para hoy (o texto exacto)
+                    if (!notifications.some(n => n.text === msg)) {
+                        addNotification(msg, diffDays <= 5 ? 'alert' : 'warning');
                     }
                 }
             }
         });
     } catch (e) { console.warn('Error checking birth alerts', e); }
+}
+
+async function checkPurgeAlerts() {
+    if (!db || !currentUser) return;
+    try {
+        const snapshot = await db.collection('vacunaciones')
+            .where('tipo', '==', 'Purga')
+            .get();
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            const fechaPurga = parseAnyDate(data.fecha);
+            if (!isNaN(fechaPurga)) {
+                const diffTime = today - fechaPurga;
+                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+                if (diffDays === 8) {
+                    const msg = `💉 PURGA (8 días): Revisar reacción o refuerzo para ${data.animal || 'el hato'}.`;
+                    if (!notifications.some(n => n.text === msg)) {
+                        addNotification(msg, 'warning');
+                    }
+                }
+            }
+        });
+    } catch (e) { console.warn('Error checking purge alerts', e); }
 }
 
 function renderNotifications() {
@@ -877,6 +916,8 @@ async function loadDashboardStats() {
     setStatText('stat-prenadas', prenadas);
 
     loadGestacion(insem);
+    checkPartoAlerts();
+    checkPurgeAlerts();
 }
 
 function loadGestacion(insem) {
@@ -910,10 +951,10 @@ function loadGestacion(insem) {
     });
 
     const preneces = Object.values(latestInsem).map(f => {
-        const fInsem = new Date(f.fecha);
+        const fInsem = parseAnyDate(f.fecha);
         let fParto;
         if (f.fechaEstimadaParto) {
-            fParto = new Date(f.fechaEstimadaParto.replace(/\//g, '-'));
+            fParto = parseAnyDate(f.fechaEstimadaParto);
         } else {
             fParto = new Date(fInsem.getTime() + (283 * 24 * 60 * 60 * 1000));
         }
@@ -924,10 +965,9 @@ function loadGestacion(insem) {
         if (isNaN(a.fParto)) return 1;
         if (isNaN(b.fParto)) return -1;
         return a.diasRestantes - b.diasRestantes;
-    }); // Order by closest to calving
+    });
 
     preneces.forEach(p => {
-        // Hide very old records (more than 60 days post calving)
         const isOld = p.diasRestantes < -60;
         if (isOld) return;
 
@@ -939,18 +979,34 @@ function loadGestacion(insem) {
         if (p.diasRestantes < 0) diasBadge = `Hace ${Math.abs(p.diasRestantes)} días`;
 
         let rowClass = '';
-        if (p.estado === 'Preñada' && p.diasRestantes >= 0 && p.diasRestantes <= 30) {
-            rowClass = 'table-warning';
-            hasAlerts = true;
-            alertsHtml += `
-            <div class="stat-card" style="border-left: 4px solid #ef4444;">
-                <div class="stat-icon" style="background:#fee2e2; color:#ef4444;">🚨</div>
+        if (p.estado === 'Preñada' && p.diasRestantes <= 30 && p.diasRestantes >= -5) {
+            let alertMsg = '';
+            let alertLevel = 'info';
+
+            if (p.diasRestantes <= 5 && p.diasRestantes >= 0) {
+                alertLevel = 'danger';
+                alertMsg = `⚠️ CRÍTICO: Faltan ${p.diasRestantes} días para el parto.`;
+            } else if (p.diasRestantes <= 15) {
+                alertLevel = 'warning';
+                alertMsg = `🔔 RECORDATORIO: Faltan ${p.diasRestantes} días (revisar ubre).`;
+            } else if (p.diasRestantes <= 30) {
+                alertLevel = 'info';
+                alertMsg = `📅 PRÓXIMO: Faltan ${p.diasRestantes} días (preparar lugar).`;
+            }
+
+            if (alertMsg) {
+                rowClass = alertLevel === 'danger' ? 'table-danger' : alertLevel === 'warning' ? 'table-warning' : 'table-info';
+                hasAlerts = true;
+                alertsHtml += `
+            <div class="stat-card" style="border-left: 4px solid var(--${alertLevel === 'danger' ? 'danger' : 'warning'});">
+                <div class="stat-icon" style="background:${alertLevel === 'danger' ? '#fee2e2' : '#fef3c7'}; color:${alertLevel === 'danger' ? '#ef4444' : '#d97706'};">🐄</div>
                 <div>
-                    <div class="stat-label">¡Atención! ${p.animal}</div>
-                    <div class="stat-value" style="font-size:1.2rem; color:#ef4444;">Faltan ${p.diasRestantes} días</div>
+                    <div class="stat-label">${p.animal}</div>
+                    <div class="stat-value" style="font-size:1.1rem; color:${alertLevel === 'danger' ? '#ef4444' : '#b45309'};">${alertMsg}</div>
                     <div style="font-size:0.8rem; color:#6b7280;">Parto est: ${formatDate(p.fParto)}</div>
                 </div>
             </div>`;
+            }
         }
 
         html += `<tr class="${rowClass}">
@@ -961,7 +1017,7 @@ function loadGestacion(insem) {
             <td>${diasBadge}</td>
             <td>${statusBadge}</td>
             <td>
-                <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditInsemModal('${p.id || ''}')" title="Editar">📝</button>
+                <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditInsemModal('${p.id}')" title="Editar">📝</button>
             </td>
         </tr>`;
     });
@@ -2297,6 +2353,23 @@ async function guardarConfiguracion() {
 }
 
 
+// Standard parser for different date formats (2026-03-03, 03/03/2026, etc)
+function parseAnyDate(str) {
+    if (!str || typeof str !== 'string') return new Date();
+    // Case 2026-03-03 or 2026/03/03
+    if (str.includes('-')) {
+        const parts = str.split('-');
+        if (parts[0].length === 4) return new Date(parts[0], parts[1] - 1, parts[2]);
+        return new Date(parts[2], parts[1] - 1, parts[0]);
+    }
+    if (str.includes('/')) {
+        const parts = str.split('/');
+        if (parts[2].length === 4) return new Date(parts[2], parts[1] - 1, parts[0]);
+        return new Date(parts[0], parts[1] - 1, parts[2]);
+    }
+    return new Date(str);
+}
+
 // ─── HISTORIAL ──────────────────────────────────────────────
 
 async function loadHistorial() {
@@ -2361,21 +2434,31 @@ async function loadHistorial() {
         if (!nac?.filas?.length) {
             nacTbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:30px;color:var(--text-muted);">Sin registros</td></tr>';
         } else {
-            nacTbody.innerHTML = nac.filas.map(f => `
-                <tr>
-          <td>${formatDate(f.fecha)}</td>
-          <td>${f.madre}</td>
-          <td>${f.cria}</td>
-          <td>${f.sexo}</td>
-          <td>${f.peso} kg</td>
-          <td>${f.observaciones || '—'}</td>
-          <td>
-            <div class="d-flex gap-1">
-              <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditNacModal('${f.id || ''}')" title="Editar">📝</button>
-              <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem; background:#ef4444;" onclick="requestQuickDelete('eventos','${f.id || ''}','Nacim. ${f.cria}')" title="Borrar">🗑</button>
-            </div>
-          </td>
-        </tr>`).join('');
+            nacTbody.innerHTML = nac.filas.map((f, i) => {
+                const sexBadge = f.sexo === 'Hembra' ?
+                    '<span class="badge" style="background:#fce7f3; color:#db2777; border:1px solid #fbcfe8;">♀ Hembra</span>' :
+                    f.sexo === 'Macho' ?
+                        '<span class="badge" style="background:#e0f2fe; color:#0284c7; border:1px solid #bae6fd;">♂ Macho</span>' :
+                        `<span class="badge bg-light text-dark">${f.sexo}</span>`;
+
+                const evenRowStyle = i % 2 === 0 ? 'background: rgba(255,255,255,0.03);' : '';
+
+                return `
+                <tr style="${evenRowStyle}">
+                  <td>${formatDate(f.fecha)}</td>
+                  <td><strong>🐮 ${f.madre}</strong></td>
+                  <td><span style="font-weight:600; color:var(--primary);">${f.cria}</span></td>
+                  <td>${sexBadge}</td>
+                  <td><span style="font-family:monospace;">${f.peso || '—'} kg</span></td>
+                  <td style="font-size:0.85rem; color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${f.observaciones || ''}">${f.observaciones || '—'}</td>
+                  <td>
+                    <div class="d-flex gap-1">
+                      <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditNacModal('${f.id}')" title="Editar">📝</button>
+                      <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem; background:#ef4444;" onclick="requestQuickDelete('eventos','${f.id}','Nacim. ${f.cria}')" title="Borrar">🗑</button>
+                    </div>
+                  </td>
+                </tr>`;
+            }).join('');
         }
     }
 }
