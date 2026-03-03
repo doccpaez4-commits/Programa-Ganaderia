@@ -902,6 +902,8 @@ async function exportarCSV(coleccion) {
 async function loadDashboardStats() {
     const prod = await fetchFromSheets('produccion_mes');
     const insem = await fetchFromSheets('inseminaciones');
+    const nac = await fetchFromSheets('nacimientos');
+    const vac = await fetchFromSheets('vacunaciones');
 
     let totalMes = 0;
     if (prod?.filas) prod.filas.forEach(f => { totalMes += f.total || 0; });
@@ -918,6 +920,80 @@ async function loadDashboardStats() {
     loadGestacion(insem);
     checkPartoAlerts();
     checkPurgeAlerts();
+    renderDashboardUpdates(nac, vac, insem);
+}
+
+function renderDashboardUpdates(nac, vac, insem) {
+    const container = document.getElementById('dashboard-novedades-list');
+    if (!container) return;
+
+    const updates = [];
+    const hoy = new Date();
+    const hace7dias = new Date(hoy.getTime() - (7 * 24 * 60 * 60 * 1000));
+
+    // Nacimientos recientes (7 días)
+    if (nac?.filas) {
+        nac.filas.forEach(f => {
+            const fNac = parseAnyDate(f.fecha);
+            if (fNac >= hace7dias) {
+                updates.push({
+                    icon: '🍼',
+                    title: `Nuevo nacimiento: ${f.cria}`,
+                    desc: `Madre: ${f.madre} | Fecha: ${formatDate(fNac)}`,
+                    type: 'success'
+                });
+            }
+        });
+    }
+
+    // Vacunas recientes (7 días)
+    if (vac?.filas) {
+        vac.filas.forEach(f => {
+            const fVac = parseAnyDate(f.fecha);
+            if (fVac >= hace7dias) {
+                updates.push({
+                    icon: '💉',
+                    title: `${f.tipo}: ${f.tratamiento}`,
+                    desc: `Animal: ${f.animal || 'Hato'} | Aplicado el ${formatDate(fVac)}`,
+                    type: 'info'
+                });
+            }
+        });
+    }
+
+    // Pendientes de confirmación parto (Próximos 15 días)
+    if (insem?.filas) {
+        insem.filas.filter(f => f.estado === 'Preñada').forEach(f => {
+            const fParto = f.fechaEstimadaParto ? parseAnyDate(f.fechaEstimadaParto) : null;
+            if (fParto) {
+                const diff = (fParto - hoy) / (1000 * 60 * 60 * 24);
+                if (diff > 0 && diff <= 15) {
+                    updates.push({
+                        icon: '🤰',
+                        title: `Parto próximo: ${f.animal}`,
+                        desc: `Fecha est: ${formatDate(fParto)} (Faltan ${Math.ceil(diff)} días)`,
+                        type: 'warning'
+                    });
+                }
+            }
+        });
+    }
+
+    if (updates.length === 0) {
+        container.innerHTML = '<div class="p-4 text-center text-muted">Sin novedades relevantes en los últimos días.</div>';
+        return;
+    }
+
+    // Render logic
+    container.innerHTML = updates.map(up => `
+        <div class="update-item" style="border-left: 4px solid var(--${up.type}); margin-bottom: 10px; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; display: flex; align-items: flex-start; gap: 12px;">
+            <div style="font-size: 1.5rem;">${up.icon}</div>
+            <div style="flex: 1;">
+                <div style="font-weight: 600; font-size: 0.95rem;">${up.title}</div>
+                <div style="font-size: 0.85rem; color: var(--text-muted);">${up.desc}</div>
+            </div>
+        </div>
+    `).join('');
 }
 
 function loadGestacion(insem) {
@@ -2419,8 +2495,8 @@ async function loadHistorial() {
           <td><span class="badge-pamora ${badgeClass}">${f.estado}</span></td>
           <td>
             <div class="d-flex gap-1">
-              <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditInsemModal('${f.id || ''}')" title="Editar">📝</button>
-              <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem; background:#ef4444;" onclick="requestQuickDelete('eventos','${f.id || ''}','Insem. ${f.animal}')" title="Borrar">🗑</button>
+              <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditInsemModal('${f.id}')" title="Editar">📝</button>
+              <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem; background:#ef4444;" onclick="requestQuickDelete('eventos','${f.id}','Insem. ${f.animal}')" title="Borrar">🗑</button>
             </div>
           </td>
         </tr>`;
