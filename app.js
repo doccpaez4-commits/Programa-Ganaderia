@@ -115,6 +115,17 @@ function initFirebase() {
     }
 }
 
+// ─── UTILS: XSS PROTECTION ──────────────────────────────────
+function escapeHTML(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 // ─── UTILS: SYNC PROGRESS ──────────────────────────────────
 function updateSyncProgress(percent, status) {
     const container = document.getElementById('sync-progress-container');
@@ -238,10 +249,10 @@ function handleLogin(e) {
                 btn.innerHTML = '🔓 Ingresar';
             });
     } else {
-        // Demo mode fallback
+        // [SECURITY NOTE] Demo mode fallback - Do not use in production
         setTimeout(() => {
             if (email === LOCAL_CREDENTIALS.usuario && pass === LOCAL_CREDENTIALS.password) {
-                bootApp(email);
+                bootApp(escapeHTML(email));
                 showToast('¡Bienvenido (modo demo)!', 'success');
             } else {
                 errorEl.textContent = 'Usuario o contraseña incorrectos';
@@ -467,7 +478,7 @@ async function addNotification(text, type = 'info') {
         text,
         type,
         time: new Date().toLocaleString(),
-        seen: false
+        read: false // Changed from 'seen' to 'read' for consistency with renderNotifications
     };
     notifications.unshift(fresh);
     saveNotifications();
@@ -491,7 +502,7 @@ async function loadNotificationsFromFirebase() {
     try {
         const snapshot = await db.collection('notificaciones')
             // Removiendo .where('userId', '==', currentUser.name) para que sean globales
-            .where('seen', '==', false)
+            .where('read', '==', false) // Changed from 'seen' to 'read'
             .orderBy('timestamp', 'desc')
             .limit(30) // Aumentamos límite para compartir
             .get();
@@ -546,7 +557,7 @@ async function checkPartoAlerts() {
 
                     // Solo añadir si no existe ya para hoy (o texto exacto)
                     if (!notifications.some(n => n.text === msg)) {
-                        addNotification(msg, diffDays <= 5 ? 'alert' : 'warning');
+                        addNotification(msg, 'parto'); // Changed type to 'parto'
                     }
                 }
             }
@@ -574,7 +585,7 @@ async function checkPurgeAlerts() {
                 if (diffDays === 8) {
                     const msg = `💉 PURGA (8 días): Revisar reacción o refuerzo para ${data.animal || 'el hato'}.`;
                     if (!notifications.some(n => n.text === msg)) {
-                        addNotification(msg, 'warning');
+                        addNotification(msg, 'vacuna'); // Changed type to 'vacuna'
                     }
                 }
             }
@@ -592,9 +603,12 @@ function renderNotifications() {
     }
 
     list.innerHTML = notifications.map(n => `
-        <div class="notification-item" style="border-left-color: ${n.type === 'alert' ? '#ef4444' : '#4ade80'}">
-            <div class="time">${n.time}</div>
-            <div class="text">${n.text}</div>
+        <div class="notification-item ${n.read ? 'read' : ''}">
+            <div class="notification-icon">${n.type === 'parto' ? '🐄' : n.type === 'vacuna' ? '💉' : '🔔'}</div>
+            <div class="notification-body">
+                <div class="notification-text">${escapeHTML(n.text)}</div>
+                <div class="notification-time">${escapeHTML(n.time)}</div>
+            </div>
         </div>
     `).join('');
 }
@@ -1099,8 +1113,8 @@ function loadGestacion(insem) {
             <div class="stat-card" style="border-left: 4px solid var(--${alertLevel === 'danger' ? 'danger' : 'warning'});">
                 <div class="stat-icon" style="background:${alertLevel === 'danger' ? '#fee2e2' : '#fef3c7'}; color:${alertLevel === 'danger' ? '#ef4444' : '#d97706'};">🐄</div>
                 <div>
-                    <div class="stat-label">${p.animal}</div>
-                    <div class="stat-value" style="font-size:1.1rem; color:${alertLevel === 'danger' ? '#ef4444' : '#b45309'};">${alertMsg}</div>
+                    <div class="stat-label">${escapeHTML(p.animal)}</div>
+                    <div class="stat-value" style="font-size:1.1rem; color:${alertLevel === 'danger' ? '#ef4444' : '#b45309'};">${escapeHTML(alertMsg)}</div>
                     <div style="font-size:0.8rem; color:#6b7280;">Parto est: ${formatDate(p.fParto)}</div>
                 </div>
             </div>`;
@@ -1716,19 +1730,19 @@ function renderHerdInventory(items, prod, noprod, activos) {
 
     tbody.innerHTML = items.map(item => {
         const notas = herdInventoryMeta[item.nombre]?.notas || '';
-        const notasHtml = notas ? `<span title="${notas.replace(/"/g, '&quot;')}" style="cursor:help; color:#60a5fa;">📝</span>` : '';
+        const notasHtml = notas ? `<span title="${escapeHTML(notas)}" style="cursor:help; color:#60a5fa;">📝</span>` : '';
         const escapedName = item.nombre.replace(/'/g, "\\'");
 
         return `
             <tr>
-                <td style="font-family:monospace; font-weight:700;">${item.idAnimal || '—'}</td>
-                <td><strong>${item.nombre}</strong></td>
-                <td>${item.raza}</td>
-                <td style="font-size:0.8rem;">${item.fechaNac}</td>
-                <td style="font-size:0.8rem;">${item.padre}</td>
-                <td style="font-size:0.8rem;">${item.madre}</td>
-                <td style="font-size:0.8rem; color:var(--text-muted);">${item.registro}</td>
-                <td><span style="color:${item.color}; font-weight:600;">${item.estado}</span></td>
+                <td style="font-family:monospace; font-weight:700;">${escapeHTML(item.idAnimal) || '—'}</td>
+                <td><strong>${escapeHTML(item.nombre)}</strong></td>
+                <td>${escapeHTML(item.raza)}</td>
+                <td style="font-size:0.8rem;">${escapeHTML(item.fechaNac)}</td>
+                <td style="font-size:0.8rem;">${escapeHTML(item.padre)}</td>
+                <td style="font-size:0.8rem;">${escapeHTML(item.madre)}</td>
+                <td style="font-size:0.8rem; color:var(--text-muted);">${escapeHTML(item.registro)}</td>
+                <td><span style="color:${item.color}; font-weight:600;">${escapeHTML(item.estado)}</span></td>
                 <td style="font-size:0.75rem; color:#ef4444;">${item.baja}</td>
                 <td>${notasHtml}</td>
                 <td>
