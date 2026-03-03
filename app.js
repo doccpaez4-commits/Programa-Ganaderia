@@ -931,22 +931,47 @@ function renderDashboardUpdates(nac, vac, insem) {
     const hoy = new Date();
     const hace7dias = new Date(hoy.getTime() - (7 * 24 * 60 * 60 * 1000));
 
-    // Nacimientos recientes (7 días)
+    // 1. Nacimientos recientes (7 días)
     if (nac?.filas) {
         nac.filas.forEach(f => {
             const fNac = parseAnyDate(f.fecha);
             if (fNac >= hace7dias) {
                 updates.push({
                     icon: '🍼',
-                    title: `Nuevo nacimiento: ${f.cria}`,
+                    title: `Nacimiento reciente: ${f.cria}`,
                     desc: `Madre: ${f.madre} | Fecha: ${formatDate(fNac)}`,
-                    type: 'success'
+                    type: 'success',
+                    date: fNac
                 });
             }
         });
     }
 
-    // Vacunas recientes (7 días)
+    // 2. PRÓXIMOS 2 PARTOS (Sin importar la fecha)
+    if (insem?.filas) {
+        const proximosPartos = insem.filas
+            .filter(f => f.estado === 'Preñada' && f.fechaEstimadaParto)
+            .map(f => ({
+                ...f,
+                fParto: parseAnyDate(f.fechaEstimadaParto)
+            }))
+            .filter(f => f.fParto >= hoy) // Solo futuros
+            .sort((a, b) => a.fParto - b.fParto)
+            .slice(0, 2); // Solo los 2 más cercanos
+
+        proximosPartos.forEach(f => {
+            const diff = Math.ceil((f.fParto - hoy) / (1000 * 60 * 60 * 24));
+            updates.push({
+                icon: '🤰',
+                title: `Próximo parto: ${f.animal}`,
+                desc: `Fecha estimada: ${formatDate(f.fParto)} (${diff} días restantes)`,
+                type: 'warning',
+                date: f.fParto
+            });
+        });
+    }
+
+    // 3. Vacunas recientes (7 días)
     if (vac?.filas) {
         vac.filas.forEach(f => {
             const fVac = parseAnyDate(f.fecha);
@@ -954,38 +979,23 @@ function renderDashboardUpdates(nac, vac, insem) {
                 updates.push({
                     icon: '💉',
                     title: `${f.tipo}: ${f.tratamiento}`,
-                    desc: `Animal: ${f.animal || 'Hato'} | Aplicado el ${formatDate(fVac)}`,
-                    type: 'info'
+                    desc: `Animal: ${f.animal || 'Hato'} | ${formatDate(fVac)}`,
+                    type: 'info',
+                    date: fVac
                 });
             }
         });
     }
 
-    // Pendientes de confirmación parto (Próximos 15 días)
-    if (insem?.filas) {
-        insem.filas.filter(f => f.estado === 'Preñada').forEach(f => {
-            const fParto = f.fechaEstimadaParto ? parseAnyDate(f.fechaEstimadaParto) : null;
-            if (fParto) {
-                const diff = (fParto - hoy) / (1000 * 60 * 60 * 24);
-                if (diff > 0 && diff <= 15) {
-                    updates.push({
-                        icon: '🤰',
-                        title: `Parto próximo: ${f.animal}`,
-                        desc: `Fecha est: ${formatDate(fParto)} (Faltan ${Math.ceil(diff)} días)`,
-                        type: 'warning'
-                    });
-                }
-            }
-        });
-    }
-
     if (updates.length === 0) {
-        container.innerHTML = '<div class="p-4 text-center text-muted">Sin novedades relevantes en los últimos días.</div>';
+        container.innerHTML = '<div class="p-4 text-center text-muted">Sin novedades relevantes.</div>';
         return;
     }
 
-    // Render logic
-    container.innerHTML = updates.map(up => `
+    // Render logic (Sorted by date to show most relevant first)
+    container.innerHTML = updates
+        .sort((a, b) => b.date - a.date)
+        .map(up => `
         <div class="update-item" style="border-left: 4px solid var(--${up.type}); margin-bottom: 10px; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; display: flex; align-items: flex-start; gap: 12px;">
             <div style="font-size: 1.5rem;">${up.icon}</div>
             <div style="flex: 1;">
@@ -1866,38 +1876,45 @@ async function removeAnimal(name) {
         ANIMALES = ANIMALES.filter(a => a !== name);
         await db.collection('config').doc('hato').set({ animales: ANIMALES });
 
-        // 2. Mark in metadata as inactive
+        // 2. DELETE from Firebase completely (as requested)
         const docId = getAnimalDocId(name);
-        await db.collection('hato_detalle').doc(docId).set({
-            status: 'Retirado',
-            motivoRetiro: motivo,
-            fechaRetiro: new Date().toISOString().split('T')[0]
-        }, { merge: true });
+        await db.collection('hato_detalle').doc(docId).delete();
 
-        showToast(`${name} ha sido retirado del hato activo`, 'info');
+        showToast(`${name} ha sido eliminado del sistema.`, 'info');
         loadHerdInventory();
     } catch (e) {
         console.error('Error removing animal:', e);
-        showToast('Error al procesar retiro', 'error');
+        showToast('Error al eliminar animal de Firebase', 'error');
     }
 }
 
 function openEditAnimalModal(name) {
-    const meta = herdInventoryMeta[name] || {};
-    document.getElementById('edit-animal-name-hidden').value = name;
-    document.getElementById('edit-animal-title').textContent = `🐄 Editar ${name}`;
+    console.log('Opening edit animal modal for:', name);
+    try {
+        const meta = herdInventoryMeta[name] || {};
+        const titleEl = document.getElementById('edit-animal-title');
+        if (!titleEl) throw new Error('No se encontró el título del modal de animal');
 
-    document.getElementById('edit-animal-id').value = meta.idAnimal || '';
-    document.getElementById('edit-animal-name').value = name;
-    document.getElementById('edit-animal-category').value = meta.categoria || 'Vaca (Producción)';
-    document.getElementById('edit-animal-breed').value = meta.raza || '';
-    document.getElementById('edit-animal-birth').value = meta.fechaNacimiento || '';
-    document.getElementById('edit-animal-father').value = meta.padre || '';
-    document.getElementById('edit-animal-mother').value = meta.madre || '';
-    document.getElementById('edit-animal-register').value = meta.registro || '';
-    document.getElementById('edit-animal-notes').value = meta.notas || '';
+        document.getElementById('edit-animal-name-hidden').value = name;
+        titleEl.textContent = `🐄 Editar ${name}`;
 
-    document.getElementById('modal-edit-animal').style.display = 'flex';
+        document.getElementById('edit-animal-id').value = meta.idAnimal || '';
+        document.getElementById('edit-animal-name').value = name;
+        document.getElementById('edit-animal-category').value = meta.categoria || 'Vaca (Producción)';
+        document.getElementById('edit-animal-breed').value = meta.raza || '';
+        document.getElementById('edit-animal-birth').value = meta.fechaNacimiento || '';
+        document.getElementById('edit-animal-father').value = meta.padre || '';
+        document.getElementById('edit-animal-mother').value = meta.madre || '';
+        document.getElementById('edit-animal-register').value = meta.registro || '';
+        document.getElementById('edit-animal-notes').value = meta.notas || '';
+
+        const modal = document.getElementById('modal-edit-animal');
+        if (!modal) throw new Error('No se encontró el elemento modal-edit-animal');
+        modal.style.display = 'flex';
+    } catch (e) {
+        console.error('Error opening animal modal:', e);
+        showToast('Error al abrir editor de animal: ' + e.message, 'error');
+    }
 }
 
 function closeEditAnimalModal() {
@@ -3131,24 +3148,43 @@ let currentEditVacuId = null;
 let currentEditInsemId = null;
 
 function openEditVacuModal(id) {
-    if (!db) return;
-    currentEditVacuId = id;
-    db.collection('vacunaciones').doc(id).get().then(doc => {
-        if (!doc.exists) return;
-        const d = doc.data();
-        document.getElementById('edit-vacu-id').value = id;
-        document.getElementById('edit-vacu-fecha').value = d.fecha || '';
-        document.getElementById('edit-vacu-tipo').value = d.tipo || 'Vacuna';
-        document.getElementById('edit-vacu-producto').value = d.tratamiento || '';
-        document.getElementById('edit-vacu-obs').value = d.observaciones || '';
+    console.log('Opening edit vacuum modal for ID:', id);
+    if (!db) {
+        showToast('Base de datos no disponible', 'error');
+        return;
+    }
+    try {
+        currentEditVacuId = id;
+        db.collection('vacunaciones').doc(id).get().then(doc => {
+            if (!doc.exists) {
+                showToast('No se encontró el registro en Firebase', 'warning');
+                return;
+            }
+            const d = doc.data();
+            document.getElementById('edit-vacu-id').value = id;
+            document.getElementById('edit-vacu-fecha').value = d.fecha || '';
+            document.getElementById('edit-vacu-tipo').value = d.tipo || 'Vacuna';
+            document.getElementById('edit-vacu-producto').value = d.tratamiento || '';
+            document.getElementById('edit-vacu-obs').value = d.observaciones || '';
 
-        // Populate animal select
-        const sel = document.getElementById('edit-vacu-animal');
-        sel.innerHTML = '<option value="">Todo el hato</option>' + ANIMALES.map(a => `<option value="${a}">${a}</option>`).join('');
-        sel.value = d.animal || '';
+            // Populate animal select
+            const sel = document.getElementById('edit-vacu-animal');
+            if (sel) {
+                sel.innerHTML = '<option value="">Todo el hato</option>' + ANIMALES.map(a => `<option value="${a}">${a}</option>`).join('');
+                sel.value = d.animal || '';
+            }
 
-        document.getElementById('modal-edit-vacunacion').style.display = 'flex';
-    });
+            const modal = document.getElementById('modal-edit-vacunacion');
+            if (modal) modal.style.display = 'flex';
+            else throw new Error('ID modal-edit-vacunacion no encontrado');
+        }).catch(err => {
+            console.error('Firestore Error:', err);
+            showToast('Error de Firebase: ' + err.message, 'error');
+        });
+    } catch (e) {
+        console.error('Error in openEditVacuModal:', e);
+        showToast('Error al procesar modal de vacuna: ' + e.message, 'error');
+    }
 }
 
 function closeEditVacuModal() {
@@ -3174,23 +3210,42 @@ async function saveEditVacunacion() {
 }
 
 function openEditInsemModal(id) {
-    if (!db) return;
-    currentEditInsemId = id;
-    db.collection('eventos').doc(id).get().then(doc => {
-        if (!doc.exists) return;
-        const d = doc.data();
-        document.getElementById('edit-insem-id').value = id;
-        document.getElementById('edit-insem-fecha').value = d.fecha || '';
-        document.getElementById('edit-insem-estado').value = d.estado || 'Pendiente';
-        document.getElementById('edit-insem-toro').value = d.toro || '';
-        document.getElementById('edit-insem-parto').value = d.fechaEstimadaParto || '';
+    console.log('Opening edit insem modal for ID:', id);
+    if (!db) {
+        showToast('Base de datos no disponible', 'error');
+        return;
+    }
+    try {
+        currentEditInsemId = id;
+        db.collection('eventos').doc(id).get().then(doc => {
+            if (!doc.exists) {
+                showToast('Registro de inseminación no encontrado', 'warning');
+                return;
+            }
+            const d = doc.data();
+            document.getElementById('edit-insem-id').value = id;
+            document.getElementById('edit-insem-fecha').value = d.fecha || '';
+            document.getElementById('edit-insem-estado').value = d.estado || 'Pendiente';
+            document.getElementById('edit-insem-toro').value = d.toro || '';
+            document.getElementById('edit-insem-parto').value = d.fechaEstimadaParto || '';
 
-        const sel = document.getElementById('edit-insem-animal');
-        sel.innerHTML = ANIMALES.map(a => `<option value="${a}">${a}</option>`).join('');
-        sel.value = d.animal || '';
+            const sel = document.getElementById('edit-insem-animal');
+            if (sel) {
+                sel.innerHTML = ANIMALES.map(a => `<option value="${a}">${a}</option>`).join('');
+                sel.value = d.animal || '';
+            }
 
-        document.getElementById('modal-edit-inseminacion').style.display = 'flex';
-    });
+            const modal = document.getElementById('modal-edit-inseminacion');
+            if (modal) modal.style.display = 'flex';
+            else throw new Error('ID modal-edit-inseminacion no encontrado');
+        }).catch(err => {
+            console.error('Firestore Error:', err);
+            showToast('Error de Firebase al cargar inseminación: ' + err.message, 'error');
+        });
+    } catch (e) {
+        console.error('Error in openEditInsemModal:', e);
+        showToast('Error al procesar modal de inseminación: ' + e.message, 'error');
+    }
 }
 
 function closeEditInsemModal() {
@@ -3222,22 +3277,41 @@ async function saveEditInseminacion() {
 }
 
 function openEditNacModal(id) {
-    if (!db) return;
-    db.collection('eventos').doc(id).get().then(doc => {
-        if (!doc.exists) return;
-        const d = doc.data();
-        document.getElementById('edit-nac-id').value = id;
-        document.getElementById('edit-nac-fecha').value = d.fecha || '';
-        document.getElementById('edit-nac-cria').value = d.cria || '';
-        document.getElementById('edit-nac-sexo').value = d.sexo || 'Hembra';
-        document.getElementById('edit-nac-peso').value = d.peso || '';
+    console.log('Opening edit nacim modal for ID:', id);
+    if (!db) {
+        showToast('Base de datos no disponible', 'error');
+        return;
+    }
+    try {
+        db.collection('eventos').doc(id).get().then(doc => {
+            if (!doc.exists) {
+                showToast('Registro de nacimiento no encontrado', 'warning');
+                return;
+            }
+            const d = doc.data();
+            document.getElementById('edit-nac-id').value = id;
+            document.getElementById('edit-nac-fecha').value = d.fecha || '';
+            document.getElementById('edit-nac-cria').value = d.cria || '';
+            document.getElementById('edit-nac-sexo').value = d.sexo || 'Hembra';
+            document.getElementById('edit-nac-peso').value = d.peso || '';
 
-        const sel = document.getElementById('edit-nac-madre');
-        sel.innerHTML = ANIMALES.map(a => `<option value="${a}">${a}</option>`).join('');
-        sel.value = d.madre || d.animal || '';
+            const sel = document.getElementById('edit-nac-madre');
+            if (sel) {
+                sel.innerHTML = ANIMALES.map(a => `<option value="${a}">${a}</option>`).join('');
+                sel.value = d.madre || d.animal || '';
+            }
 
-        document.getElementById('modal-edit-nacimiento').style.display = 'flex';
-    });
+            const modal = document.getElementById('modal-edit-nacimiento');
+            if (modal) modal.style.display = 'flex';
+            else throw new Error('ID modal-edit-nacimiento no encontrado');
+        }).catch(err => {
+            console.error('Firestore Error:', err);
+            showToast('Error de Firebase al cargar nacimiento: ' + err.message, 'error');
+        });
+    } catch (e) {
+        console.error('Error in openEditNacModal:', e);
+        showToast('Error al procesar modal de nacimiento: ' + e.message, 'error');
+    }
 }
 
 function closeEditNacModal() {
