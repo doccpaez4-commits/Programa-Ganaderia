@@ -131,6 +131,9 @@
         <button class="nav-tab" data-tab="historial" id="tab-historial">
           <span>📜</span> Historial
         </button>
+        <button class="nav-tab" data-tab="explorador" id="tab-explorador">
+          <span>🔍</span> Explorador
+        </button>
       </nav>
 
       <!-- Content -->
@@ -163,6 +166,11 @@
               <span class="dash-card-icon">📊</span>
               <div class="dash-card-title">Ver Rentabilidad</div>
               <div class="dash-card-subtitle">Análisis financiero</div>
+            </div>
+            <div class="dash-card" onclick="switchTab('explorador')" style="border: 1px solid var(--text-accent);">
+              <span class="dash-card-icon">🔍</span>
+              <div class="dash-card-title">Explorador Pro</div>
+              <div class="dash-card-subtitle">Búsqueda avanzada de eventos</div>
             </div>
             <div class="dash-card" onclick="switchTab('config')">
               <span class="dash-card-icon">⚙️</span>
@@ -700,6 +708,63 @@
               <div style="height: 260px;">
                 <canvas id="chart-gastos-categoria"></canvas>
               </div>
+            </div>
+          </div>
+        </div>
+
+
+        <!-- ═══ PANEL: EXPLORADOR DE EVENTOS (Admin) ═══ -->
+        <div id="panel-explorador" class="tab-panel">
+          <span class="back-link" onclick="switchTab('inicio')">← Volver al inicio</span>
+          <div class="section-header">
+            <h1 class="section-title">🔍 Explorador de Eventos</h1>
+            <p class="section-subtitle">Búsqueda rápida en la totalidad del historial compartido</p>
+          </div>
+
+          <div class="card-pamora mb-3">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label">Buscar animal o tipo de evento</label>
+                <input type="text" id="explorer-search" class="form-control" placeholder="Ej: Vaca 01 o Inseminación..."
+                  oninput="filterExplorer()">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Filtrar por categoría</label>
+                <select id="explorer-filter-type" class="form-select" onchange="filterExplorer()">
+                  <option value="todos">Todos los eventos</option>
+                  <option value="Inseminación">Inseminaciones</option>
+                  <option value="Celo">Celos</option>
+                  <option value="Nacimiento">Nacimientos</option>
+                  <option value="Purga">Purgas</option>
+                  <option value="Secado">Secados</option>
+                  <option value="Otro">Otros</option>
+                </select>
+              </div>
+              <div class="col-md-2 d-flex align-items-end">
+                <button class="btn-pamora w-100" onclick="loadEventExplorer()">🔄 Refrescar</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-pamora">
+            <div class="table-wrapper">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Animal</th>
+                    <th>Tipo de Evento</th>
+                    <th>Detalles / Observaciones</th>
+                    <th>Registrado por</th>
+                  </tr>
+                </thead>
+                <tbody id="explorer-tbody">
+                  <tr>
+                    <td colspan="5" class="text-center" style="padding:40px; color:var(--text-muted);">Usa el buscador
+                      para encontrar eventos...</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

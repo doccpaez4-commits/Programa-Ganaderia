@@ -203,8 +203,9 @@ function switchTab(tabId) {
     if (tabId === 'inicio') loadDashboardStats();
     if (tabId === 'rentabilidad') loadRentabilidad();
     if (tabId === 'historial') loadHistorial();
+    if (tabId === 'explorador') loadEventExplorer();
     if (tabId === 'config') renderConfigAnimales();
-    if (tabId === 'gestacion') loadDashboardStats(); // Reusa stats fetch para no duplicar llamadas
+    if (tabId === 'gestacion') loadDashboardStats();
     if (tabId === 'costos') updateCostoPorLitro();
 }
 
@@ -343,9 +344,10 @@ async function loadNotificationsFromFirebase() {
     if (!db) return;
     try {
         const snapshot = await db.collection('notificaciones')
+            // Removiendo .where('userId', '==', currentUser.name) para que sean globales
             .where('seen', '==', false)
             .orderBy('timestamp', 'desc')
-            .limit(20)
+            .limit(30) // Aumentamos límite para compartir
             .get();
 
         const fbNotifications = [];
@@ -1477,6 +1479,68 @@ async function loadHistorial() {
     }
 }
 
+
+
+// ─── EXPLORADOR DE EVENTOS (Admin) ─────────────────────────
+
+let explorerFullData = [];
+
+async function loadEventExplorer() {
+    if (!db) {
+        showToast('Explorador solo disponible con Firebase', 'warning');
+        return;
+    }
+
+    const tbody = document.getElementById('explorer-tbody');
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center">🔍 Consultando base de datos global...</td></tr>';
+
+    try {
+        const snapshot = await db.collection('eventos').orderBy('timestamp', 'desc').get();
+        explorerFullData = [];
+        snapshot.forEach(doc => {
+            explorerFullData.push({ id: doc.id, ...doc.data() });
+        });
+
+        filterExplorer(); // Renderiza según filtros actuales
+    } catch (e) {
+        console.error('Error loading explorer:', e);
+        showToast('Error al cargar explorador', 'error');
+    }
+}
+
+function filterExplorer() {
+    const search = document.getElementById('explorer-search').value.toLowerCase();
+    const typeFilter = document.getElementById('explorer-filter-type').value;
+    const tbody = document.getElementById('explorer-tbody');
+
+    const filtered = explorerFullData.filter(ev => {
+        const matchText = (ev.animal || '').toLowerCase().includes(search) ||
+            (ev.tipo || '').toLowerCase().includes(search) ||
+            (ev.detalles || '').toLowerCase().includes(search);
+
+        const matchType = typeFilter === 'todos' || ev.tipo === typeFilter;
+
+        return matchText && matchType;
+    });
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center">No se encontraron eventos con esos filtros.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(ev => {
+        const dateStr = ev.fecha || (ev.timestamp ? ev.timestamp.toDate().toLocaleDateString() : '---');
+        return `
+            <tr>
+                <td>${dateStr}</td>
+                <td><strong>${ev.animal || '---'}</strong></td>
+                <td><span class="badge-${(ev.tipo || '').toLowerCase()}">${ev.tipo || 'Evento'}</span></td>
+                <td>${ev.detalles || ev.observaciones || '---'}</td>
+                <td style="font-size: 0.8rem; color: var(--text-muted);">${ev.registradoPor || ev.usuario || 'Sistema'}</td>
+            </tr>
+        `;
+    }).join('');
+}
 
 // ─── DEMO DATA ──────────────────────────────────────────────
 
