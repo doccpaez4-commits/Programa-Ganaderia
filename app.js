@@ -911,7 +911,8 @@ async function loadDashboardStats() {
     const dias = prod?.filas?.length || 1;
     setStatText('stat-total-litros', totalMes.toFixed(0));
     setStatText('stat-promedio', (totalMes / dias).toFixed(1));
-    setStatText('stat-animales', ANIMALES.length);
+    const activeAnimals = (currentHerdCenso || []).filter(a => a.status !== 'Retirado');
+    setStatText('stat-animales', activeAnimals.length > 0 ? activeAnimals.length : ANIMALES.length);
 
     let prenadas = 0;
     if (insem?.filas) prenadas = insem.filas.filter(f => f.estado === 'Preñada').length;
@@ -964,7 +965,7 @@ function renderDashboardUpdates(nac, vac, insem) {
         });
 
         const proximosPartos = Object.values(latestPregnancy)
-            .filter(f => f.fParto >= hoy) // Solo futuros
+            .filter(f => f.fParto >= new Date(hoy.getTime() - (2 * 24 * 60 * 60 * 1000))) // Allow 2 days overdue to stay on dashboard
             .sort((a, b) => a.fParto - b.fParto)
             .slice(0, 2); // Solo los 2 más cercanos
 
@@ -1389,10 +1390,12 @@ async function loadHerdInventory() {
         const hatoDetalle = [];
         let countProduccion = 0;
         let countNoProd = 0;
+        let countActivos = 0;
 
         // Use all real names from metadata for the census (source of truth)
         for (const animal of allAnimalNamesInMeta) {
             let meta = herdInventoryMeta[animal] || {};
+            if (meta.status !== 'Retirado') countActivos++;
 
             let idAnimal = meta.idAnimal || '—';
             let raza = meta.raza || '—';
@@ -1456,7 +1459,7 @@ async function loadHerdInventory() {
         ANIMALES = hatoDetalle.map(a => a.nombre);
 
         currentHerdCenso = hatoDetalle;
-        renderHerdInventory(hatoDetalle, countProduccion, countNoProd);
+        renderHerdInventory(hatoDetalle, countProduccion, countNoProd, countActivos);
 
         // Refresh all UI pickers and grids
         buildAnimalInputs('ordeno-animal-grid', 'ordeno');
@@ -1702,11 +1705,11 @@ async function exportAllDataToCSV() {
     }
 }
 
-function renderHerdInventory(items, prod, noprod) {
+function renderHerdInventory(items, prod, noprod, activos) {
     const tbody = document.getElementById('hato-inventory-tbody');
     if (!tbody) return;
 
-    document.getElementById('censo-total').textContent = items.length;
+    document.getElementById('censo-total').textContent = activos || items.length;
     document.getElementById('censo-produccion').textContent = prod;
     document.getElementById('censo-no-productivo').textContent = noprod;
 
@@ -2728,10 +2731,10 @@ function getDemoData(accion) {
         case 'inseminaciones':
             return {
                 filas: [
-                    { fecha: '2025-06-01', animal: 'Yohana', toro: 'Brahman Elite', tecnico: 'Dr. Pérez', observaciones: '¡PRÓXIMO PARTO!', estado: 'Preñada' },
-                    { fecha: '2026-01-20', animal: 'Dulce', toro: 'Holstein Prime', tecnico: 'Dr. Pérez', observaciones: '', estado: 'Pendiente' },
-                    { fecha: '2026-02-05', animal: 'Nube', toro: 'Jersey Gold', tecnico: 'Dr. López', observaciones: 'No preñada todavía', estado: 'No Preñada' },
-                    { fecha: '2026-02-10', animal: 'Morocha', toro: 'Gyr Superior', tecnico: 'Dr. Pérez', observaciones: '', estado: 'Preñada' }
+                    { id: 'demo-insem-1', fecha: '2025-06-01', animal: 'Yohana', toro: 'Brahman Elite', tecnico: 'Dr. Pérez', observaciones: '¡PRÓXIMO PARTO!', estado: 'Preñada', fechaEstimadaParto: '2026-03-10' },
+                    { id: 'demo-insem-2', fecha: '2026-01-20', animal: 'Dulce', toro: 'Holstein Prime', tecnico: 'Dr. Pérez', observaciones: '', estado: 'Pendiente' },
+                    { id: 'demo-insem-3', fecha: '2026-02-05', animal: 'Nube', toro: 'Jersey Gold', tecnico: 'Dr. López', observaciones: 'No preñada todavía', estado: 'No Preñada' },
+                    { id: 'demo-insem-4', fecha: '2026-02-10', animal: 'Morocha', toro: 'Gyr Superior', tecnico: 'Dr. Pérez', observaciones: '', estado: 'Preñada', fechaEstimadaParto: '2026-11-20' }
                 ]
             };
 
@@ -2746,8 +2749,8 @@ function getDemoData(accion) {
         case 'celos':
             return {
                 filas: [
-                    { fecha: '2026-02-14', animal: 'Sol', intensidad: 'Fuerte', duracion: '16', accionItem: 'Programar inseminación', observaciones: 'Mugidos y monta a otras vacas' },
-                    { fecha: '2026-02-25', animal: 'Nube', intensidad: 'Moderado', duracion: '8', accionItem: 'Sin acción', observaciones: 'Flujo claro' }
+                    { id: 'demo-celo-1', fecha: '2026-02-14', animal: 'Sol', intensidad: 'Fuerte', duracion: '16', accionItem: 'Programar inseminación', observaciones: 'Mugidos y monta a otras vacas' },
+                    { id: 'demo-celo-2', fecha: '2026-02-25', animal: 'Nube', intensidad: 'Moderado', duracion: '8', accionItem: 'Sin acción', observaciones: 'Flujo claro' }
                 ]
             };
 
@@ -3187,6 +3190,17 @@ let currentEditInsemId = null;
 
 function openEditVacuModal(id) {
     console.log('Opening edit vacuum modal for ID:', id);
+    if (!id) {
+        showToast('ID de registro no válido', 'warning');
+        return;
+    }
+    if (id.startsWith('demo-')) {
+        showToast('Registro de demostración: No se puede editar físicamente', 'info');
+        // We still show the modal for visual verification
+        const modal = document.getElementById('modal-edit-vacunacion');
+        if (modal) modal.style.display = 'flex';
+        return;
+    }
     if (!db) {
         showToast('Base de datos no disponible', 'error');
         return;
@@ -3249,6 +3263,16 @@ async function saveEditVacunacion() {
 
 function openEditInsemModal(id) {
     console.log('Opening edit insem modal for ID:', id);
+    if (!id) {
+        showToast('ID de registro no válido', 'warning');
+        return;
+    }
+    if (id.startsWith('demo-')) {
+        showToast('Registro de demostración: No se puede editar físicamente', 'info');
+        const modal = document.getElementById('modal-edit-inseminacion');
+        if (modal) modal.style.display = 'flex';
+        return;
+    }
     if (!db) {
         showToast('Base de datos no disponible', 'error');
         return;
