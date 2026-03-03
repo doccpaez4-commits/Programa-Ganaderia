@@ -190,8 +190,9 @@ async function bootApp(userName) {
     // AUTOMATIC SEEDING (Duplicate Prevention Included)
     if (db) {
         updateSyncProgress(90, 'Verificando historiales...');
-        await seedVacunaciones(true); // true = silent/auto mode
+        await seedVacunaciones(true);
         await seedInseminaciones(true);
+        await seedNacimientos(true);
     }
 
     updateSyncProgress(100, 'Sincronización terminada ✅');
@@ -1474,10 +1475,7 @@ async function processExcelImport() {
         const batch = db.batch();
         for (const [name, data] of Object.entries(metaBatch)) {
             const docRef = db.collection('hato_detalle').doc(getAnimalDocId(name));
-            batch.set(docRef, {
-                ...data,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
+            batch.set(docRef, { ...data, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
         }
         await batch.commit();
 
@@ -1490,6 +1488,65 @@ async function processExcelImport() {
     } catch (e) {
         console.error('Import error:', e);
         showToast('Error en la sincronización: ' + e.message, 'error');
+    }
+}
+
+async function exportAllDataToCSV() {
+    if (!db) { showToast('No hay conexión con la base de datos', 'warning'); return; }
+    showToast('Generando reporte total...', 'info');
+
+    try {
+        const inventory = await db.collection('hato_detalle').get();
+        const events = await db.collection('eventos').get();
+        const vaccines = await db.collection('vacunaciones').get();
+
+        let csv = '\uFEFF';
+        csv += '--- CENSO DEL HATO ---\n';
+        csv += 'ID Animal,Nombre,Raza,Fecha Nacimiento,Padre,Madre,Registro,Estado,Notas\n';
+        inventory.forEach(doc => {
+            const d = doc.data();
+            csv += `"${d.idAnimal || ''}","${d.nombre || ''}","${d.raza || ''}","${d.fechaNacimiento || ''}","${d.padre || ''}","${d.madre || ''}","${d.registro || ''}","${d.estado || ''}","${(d.notas || '').replace(/"/g, '""')}"\n`;
+        });
+
+        csv += '\n--- REGISTRO DE NACIMIENTOS ---\n';
+        csv += 'Fecha,Madre,Cria,Sexo,Peso,Complicaciones,Notas\n';
+        events.forEach(doc => {
+            const d = doc.data();
+            if (d.tipo === 'Nacimiento') {
+                csv += `"${d.fecha || ''}","${d.madre || d.animal || ''}","${d.cria || ''}","${d.sexo || ''}","${d.peso || ''}","${(d.complicaciones || '').replace(/"/g, '""')}","${(d.observaciones || '').replace(/"/g, '""')}"\n`;
+            }
+        });
+
+        csv += '\n--- REGISTRO SANITARIO (VACUNAS/PURGAS) ---\n';
+        csv += 'Fecha,Animal,Tipo,Tratamiento,Dosis,Administrador,Notas\n';
+        vaccines.forEach(doc => {
+            const d = doc.data();
+            csv += `"${d.fecha || ''}","${d.animal || ''}","${d.tipo || ''}","${d.tratamiento || ''}","${d.dosis || ''}","${d.administrador || ''}","${(d.observaciones || '').replace(/"/g, '""')}"\n`;
+        });
+
+        csv += '\n--- CONTROL DE GESTACIÓN ---\n';
+        csv += 'Animal,Fecha Insem,Toro,F. Est Parto,Estado\n';
+        events.forEach(doc => {
+            const d = doc.data();
+            if (d.tipo === 'Inseminación' && d.estado !== 'No Preñada') {
+                csv += `"${d.animal || ''}","${d.fecha || ''}","${d.toro || ''}","${d.fechaEstimadaParto || ''}","${d.estado || ''}"\n`;
+            }
+        });
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'Reporte_Total_Pamora_' + new Date().toISOString().split('T')[0] + '.csv');
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        showToast('Reporte CSV descargado ✅', 'success');
+    } catch (e) {
+        console.error('Export error:', e);
+        showToast('Error al exportar datos', 'error');
     }
 }
 
@@ -2263,6 +2320,9 @@ async function loadHistorial() {
           <td>${f.duracion} h</td>
           <td>${f.accionItem}</td>
           <td>${f.observaciones || '—'}</td>
+          <td>
+            <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem; background:#ef4444;" onclick="requestQuickDelete('eventos','${f.id || ''}','Celo ${f.animal}')" title="Borrar">🗑</button>
+          </td>
         </tr>`;
             }).join('');
         }
@@ -2285,7 +2345,10 @@ async function loadHistorial() {
           <td><span style="font-size:0.85rem; color:var(--text-muted);">${f.observaciones || '—'}</span></td>
           <td><span class="badge-pamora ${badgeClass}">${f.estado}</span></td>
           <td>
-            <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditInsemModal('${f.id || ''}')" title="Editar">📝</button>
+            <div class="d-flex gap-1">
+              <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditInsemModal('${f.id || ''}')" title="Editar">📝</button>
+              <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem; background:#ef4444;" onclick="requestQuickDelete('eventos','${f.id || ''}','Insem. ${f.animal}')" title="Borrar">🗑</button>
+            </div>
           </td>
         </tr>`;
             }).join('');
@@ -2307,7 +2370,10 @@ async function loadHistorial() {
           <td>${f.peso} kg</td>
           <td>${f.observaciones || '—'}</td>
           <td>
-            <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditNacModal('${f.id || ''}')" title="Editar">📝</button>
+            <div class="d-flex gap-1">
+              <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditNacModal('${f.id || ''}')" title="Editar">📝</button>
+              <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem; background:#ef4444;" onclick="requestQuickDelete('eventos','${f.id || ''}','Nacim. ${f.cria}')" title="Borrar">🗑</button>
+            </div>
           </td>
         </tr>`).join('');
         }
@@ -2804,10 +2870,47 @@ async function seedVacunaciones(silent = false) {
         }
         if (added > 0) {
             await batch.commit();
-            if (!silent) showToast(`✅ ${added} registros cargados`, 'success');
+            if (!silent) showToast(`✅ ${added} vacunaciones cargadas`, 'success');
             loadVacunaciones();
         }
     } catch (e) { if (!silent) console.error('Seed error:', e); }
+}
+
+async function seedNacimientos(silent = false) {
+    if (!db) return;
+    const data = [
+        { fecha: '2024-06-26', animal: 'Moli', cria: 'N.A', sexo: 'Macho', madre: 'Moli', tipoParto: 'Normal', complicaciones: 'Ninguna', peso: 'Sin información', observaciones: 'Se vende el ternero' },
+        { fecha: '2025-04-16', animal: 'Morocha', cria: 'Bambi', sexo: 'Hembra', madre: 'Morocha', tipoParto: 'Normal', complicaciones: 'Ninguna', peso: 'Sin información', observaciones: '' },
+        { fecha: '2025-04-17', animal: 'Dulce', cria: 'N.A', sexo: 'Gemelos', madre: 'Dulce', tipoParto: 'Normal', complicaciones: 'Retención de placenta-Edema abdominal por embarazo gemelar', peso: 'Sin información', observaciones: 'Embarazo gemelar. Una de las crias muere durante el parto' },
+        { fecha: '2025-04-29', animal: 'Miel', cria: 'Tato', sexo: 'Macho', madre: 'Miel', tipoParto: 'Normal', complicaciones: 'Ninguna', peso: 'Sin información', observaciones: '' },
+        { fecha: '2025-05-13', animal: 'Nube', cria: 'Gurú', sexo: 'Macho', madre: 'Nube', tipoParto: 'Normal', complicaciones: 'Ninguna', peso: 'Sin información', observaciones: '' },
+        { fecha: '2025-06-06', animal: 'Mapi', cria: 'Augusto', sexo: 'Macho', madre: 'Mapi', tipoParto: 'Normal', complicaciones: 'La vaca tiene dificultades para levantarse, se aplican diversos medicamentos, vitamina, calcio, entre otros.', peso: 'Sin información', observaciones: 'Se vende el ternero.' },
+        { fecha: '2025-06-26', animal: 'Sol', cria: 'Lulu', sexo: 'Hembra', madre: 'Sol', tipoParto: 'Normal', complicaciones: 'Ninguna', peso: 'Sin información', observaciones: '' },
+        { fecha: '2025-08-08', animal: 'Moli', cria: 'Consentida', sexo: 'Hembra', madre: 'Moli', tipoParto: 'Normal', complicaciones: 'Retención de placenta, requiere lavado.', peso: 'Sin información', observaciones: '' },
+        { fecha: '2025-09-23', animal: 'Martina', cria: 'MacFly', sexo: 'Macho', madre: 'Martina', tipoParto: 'Normal', complicaciones: 'Laceraciones por parto dificil.', peso: 'Sin información', observaciones: 'se vende ternero' }
+    ];
+
+    try {
+        const batch = db.batch();
+        let added = 0;
+        for (const d of data) {
+            const snap = await db.collection('eventos')
+                .where('madre', '==', d.madre)
+                .where('fecha', '==', d.fecha)
+                .where('tipo', '==', 'Nacimiento')
+                .get();
+
+            if (snap.empty) {
+                batch.set(db.collection('eventos').doc(), { ...d, tipo: 'Nacimiento', addedAt: firebase.firestore.FieldValue.serverTimestamp() });
+                added++;
+            }
+        }
+        if (added > 0) {
+            await batch.commit();
+            if (!silent) showToast(`✅ ${added} nacimientos cargados`, 'success');
+            loadHistorial();
+        }
+    } catch (e) { if (!silent) console.error('Seed Nac error:', e); }
 }
 
 // ─── SEMILLA INSEMINACIONES HISTÓRICAS ────────────────────────────────────────
@@ -3007,7 +3110,8 @@ async function cleanupHeaderRows() {
     if (!db) return;
     const HEADER_IDS = [
         'ID_Animal', 'Nombre', 'Raza', 'Fecha_Nacimiento', 'Padre', 'Madre', 'Registro', 'Estado_Actual',
-        'ID Animal', 'Fecha Nacimiento', 'VENDIDA/BAJA (no aplica)', '2 /3/2026 (no aplica)', '📝'
+        'ID Animal', 'Fecha Nacimiento', 'VENDIDA/BAJA (no aplica)', '2 /3/2026 (no aplica)', '📝',
+        'ID ANIMAL Nombre raza', 'ID Animal Nombre Raza'
     ];
     try {
         const batch = db.batch();
