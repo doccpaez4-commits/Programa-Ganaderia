@@ -59,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initNavigation();
     initDateDefaults();
     initIdleTimer();
+    initFormListeners();
 });
 
 let idleTimer;
@@ -138,6 +139,24 @@ function updateSyncProgress(percent, status) {
     }
 }
 
+// ─── UTILS: NAVIGATION GUARD ────────────────────────────────
+let hasUnsavedChanges = false;
+
+function setDirty(value = true) {
+    hasUnsavedChanges = value;
+}
+
+function initFormListeners() {
+    // Add listeners to main forms to detect changes
+    const forms = ['ordeno-form', 'evento-form', 'gasto-form'];
+    forms.forEach(id => {
+        const f = document.getElementById(id);
+        if (f) {
+            f.addEventListener('input', () => setDirty(true));
+            f.addEventListener('change', () => setDirty(true));
+        }
+    });
+}
 
 // ─── AUTH ───────────────────────────────────────────────────
 
@@ -148,17 +167,20 @@ async function bootApp(userName) {
 
     try {
         const configSnap = await db.collection('config').doc('hato').get();
-        updateSyncProgress(30, 'Cargando configuración del hato...');
+        updateSyncProgress(30, 'Descargando configuración básica...');
         if (configSnap.exists) {
             const hato = configSnap.data();
             if (hato && hato.animales) ANIMALES = hato.animales;
         }
     } catch (e) {
         console.error('Error loading config:', e);
-        showToast('Error al conectar con la configuración', 'error');
     }
 
-    updateSyncProgress(50, 'Sincronizando componentes...');
+    updateSyncProgress(50, 'Sincronizando censo completo...');
+    // CRITICAL: Await inventory loading before building grids/selectors
+    await loadHerdInventory();
+
+    updateSyncProgress(80, 'Preparando formularios...');
     buildAnimalInputs('ordeno-animal-grid', 'ordeno');
     buildAnimalSelectors();
     renderConfigAnimales();
@@ -167,8 +189,6 @@ async function bootApp(userName) {
     loadNotificationsFromFirebase();
     checkPartoAlerts();
 
-    updateSyncProgress(70, 'Cargando censo completo...');
-    await loadHerdInventory();
     updateSyncProgress(100, 'Sincronización terminada ✅');
 }
 
@@ -265,6 +285,15 @@ function initNavigation() {
 }
 
 function switchTab(tabId) {
+    if (hasUnsavedChanges) {
+        if (!confirm('⚠️ Tienes cambios sin sincronizar en el formulario. ¿Deseas salir sin guardar?')) {
+            return;
+        }
+    }
+
+    // Reset dirty flag when switching if user confirmed or no changes
+    setDirty(false);
+
     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
     const tabBtn = document.querySelector(`[data-tab="${tabId}"]`);
     if (tabBtn) tabBtn.classList.add('active');
@@ -273,18 +302,13 @@ function switchTab(tabId) {
     const panel = document.getElementById(`panel-${tabId}`);
     if (panel) {
         panel.classList.add('active');
-        // Auto-scroll to top
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     // Toggle specific tool visibility (Import Excel only in Hato)
     const hatoTools = document.querySelector('#panel-mi-hato .section-header .d-flex.gap-2');
     if (hatoTools) {
-        if (tabId === 'mi-hato') {
-            hatoTools.style.display = 'flex';
-        } else {
-            hatoTools.style.display = 'none';
-        }
+        hatoTools.style.display = (tabId === 'mi-hato') ? 'flex' : 'none';
     }
 
     // Load data for specific tabs
@@ -683,6 +707,7 @@ async function saveToCloud(data, btn, successId, formId) {
                 user: currentUser.name
             });
 
+            setDirty(false); // Clear dirty flag on success
             showSyncSuccess(successId);
             if (formId) resetForm(formId);
             showToast('🔥 Guardado en Firebase', 'success');
