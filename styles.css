@@ -597,3 +597,38 @@ body::before {
 .g-3 {
   gap: 1rem;
 }
+/* ─── Sync Progress Bar ────────────────────────────────── */
+.sync-progress-container {
+  padding: 10px 24px;
+  background: rgba(0, 0, 0, 0.4);
+  border-bottom: 1px solid var(--glass-border);
+  transition: var(--transition);
+}
+
+.sync-progress-container.hidden {
+  display: none;
+}
+
+.sync-progress-info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #4ade80;
+}
+
+.sync-progress-bar-bg {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.sync-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--primary-gradient);
+  box-shadow: 0 0 10px var(--glass-glow);
+  transition: width 0.4s ease;
+}

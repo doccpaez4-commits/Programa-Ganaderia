@@ -114,21 +114,51 @@ function initFirebase() {
     }
 }
 
+// ─── UTILS: SYNC PROGRESS ──────────────────────────────────
+function updateSyncProgress(percent, status) {
+    const container = document.getElementById('sync-progress-container');
+    const fill = document.getElementById('sync-progress-fill');
+    const statusText = document.getElementById('sync-status-text');
+    const percentText = document.getElementById('sync-percent');
+
+    if (!container) return;
+
+    if (percent === null) {
+        container.classList.add('hidden');
+        return;
+    }
+
+    container.classList.remove('hidden');
+    fill.style.width = percent + '%';
+    if (status) statusText.textContent = status;
+    percentText.textContent = Math.round(percent) + '%';
+
+    if (percent >= 100) {
+        setTimeout(() => container.classList.add('hidden'), 1500);
+    }
+}
+
 
 // ─── AUTH ───────────────────────────────────────────────────
 
 async function bootApp(userName) {
     currentUser = { name: userName };
     showApp(userName);
+    updateSyncProgress(10, 'Iniciando sesión...');
 
     try {
         const configSnap = await db.collection('config').doc('hato').get();
+        updateSyncProgress(30, 'Cargando configuración del hato...');
         if (configSnap.exists) {
             const hato = configSnap.data();
             if (hato && hato.animales) ANIMALES = hato.animales;
         }
-    } catch (e) { console.warn('Could not load config', e) }
+    } catch (e) {
+        console.error('Error loading config:', e);
+        showToast('Error al conectar con la configuración', 'error');
+    }
 
+    updateSyncProgress(50, 'Sincronizando componentes...');
     buildAnimalInputs('ordeno-animal-grid', 'ordeno');
     buildAnimalSelectors();
     renderConfigAnimales();
@@ -136,7 +166,10 @@ async function bootApp(userName) {
     updateNotificationBadge();
     loadNotificationsFromFirebase();
     checkPartoAlerts();
-    loadHerdInventory();
+
+    updateSyncProgress(70, 'Cargando censo completo...');
+    await loadHerdInventory();
+    updateSyncProgress(100, 'Sincronización terminada ✅');
 }
 
 function handleLogin(e) {
@@ -301,10 +334,12 @@ function buildAnimalInputs(gridId, prefix) {
     const grid = document.getElementById(gridId);
     if (!grid) return;
 
-    // Expert Filter: Only show animals currently in "LACTANDO" according to the censo
-    const lactantes = (currentHerdCenso || []).filter(a => a.estado.includes('LACTANDO'));
+    // Expert Filter: Only show animals currently in "LACTANDO 🥛" according to the censo
+    // We search for animals that HAVE THE STATUS "LACTANDO 🥛" in the currentHerdCenso list
+    const lactantes = (currentHerdCenso || []).filter(a => a.estado.toUpperCase().includes('LACTANDO'));
 
-    // Default to lactantes list
+    // If census is not yet loaded, try to filter from raw category name "Vaca (Producción)" if meta exists locally
+    // but the BEST way is to wait for the censo status.
     const listToRender = lactantes.map(l => l.nombre);
 
     grid.innerHTML = listToRender.map((animal, index) => `
@@ -1101,9 +1136,10 @@ async function loadHerdInventory() {
     }
 
     const tbody = document.getElementById('hato-inventory-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:20px;">🔍 Analizando hato y eventos...</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px;">🔍 Analizando hato y eventos...</td></tr>';
 
     try {
+        updateSyncProgress(75, 'Obteniendo metadatos del hato...');
         // 1. Get ALL metadata (category, breed, etc.)
         const metaSnap = await db.collection('hato_detalle').get();
         herdInventoryMeta = {};
