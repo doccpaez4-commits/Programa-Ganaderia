@@ -20,9 +20,13 @@ const LOCAL_CREDENTIALS = {
 };
 
 const FIREBASE_CONFIG = {
-    apiKey: "TU_API_KEY",
-    authDomain: "TU_PROYECTO.firebaseapp.com",
-    projectId: "TU_PROYECTO"
+    apiKey: "AIzaSyDVp5Vph7Li9QsOz4pGc6kFiXASDwC-6vM",
+    authDomain: "pamoraleche.firebaseapp.com",
+    projectId: "pamoraleche",
+    storageBucket: "pamoraleche.firebasestorage.app",
+    messagingSenderId: "526179598333",
+    appId: "1:526179598333:web:2c46187cd0243f2dbfe394",
+    measurementId: "G-4ZH0SRTS5D"
 };
 
 
@@ -39,67 +43,77 @@ function getAnimalEmoji(name) {
 }
 
 
-// ─── STATE ──────────────────────────────────────────────────
+// ─── INITIALIZATION ─────────────────────────────────────────
+let db = null;
+let auth = null;
 let currentUser = null;
 let isDemo = false;
 
-
-// ─── INITIALIZATION ─────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+    initFirebase();
     initNavigation();
     initDateDefaults();
-    checkAutoLogin();
 });
 
-async function bootApp(userName) {
-    currentUser = { name: userName };
-    showApp(userName);
+function initFirebase() {
+    const isConfigured = FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== 'TU_API_KEY';
+    if (isConfigured) {
+        firebase.initializeApp(FIREBASE_CONFIG);
+        db = firebase.firestore();
+        auth = firebase.auth();
+        console.log('🔥 Firebase Auth + Firestore initialized');
 
-    // Load dynamic config
-    try {
-        const cfg = await fetchFromSheets('config');
-        if (cfg && cfg.animales && Array.isArray(cfg.animales) && cfg.animales.length > 0) {
-            ANIMALES = cfg.animales;
-        }
-    } catch (e) { console.warn('Could not default config', e) }
-
-    // Build dynamic UI
-    buildAnimalInputs('ordeno-animal-grid', 'ordeno');
-    buildAnimalSelectors();
-    renderConfigAnimales();
-
-    loadDashboardStats();
+        // Listen for auth state changes — this is the main entry point
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                // Logged in via Firebase
+                bootApp(user.email);
+            } else {
+                // Demo mode if no backend configured
+                if (!db) {
+                    isDemo = true;
+                    bootApp('Demo');
+                } else {
+                    showLogin();
+                }
+            }
+        });
+    } else {
+        // No Firebase config — run in demo mode
+        isDemo = true;
+        bootApp('Demo');
+    }
 }
 
 
 // ─── AUTH ───────────────────────────────────────────────────
 
-function checkAutoLogin() {
-    const isConfigured = FIREBASE_CONFIG.apiKey &&
-        FIREBASE_CONFIG.apiKey !== 'TU_API_KEY' &&
-        FIREBASE_CONFIG.projectId !== 'TU_PROYECTO';
+async function bootApp(userName) {
+    currentUser = { name: userName };
+    showApp(userName);
 
-    if (!isConfigured && APPS_SCRIPT_URL === 'TU_URL_DE_APPS_SCRIPT_AQUI') {
-        // Full demo mode — skip login entirely
-        isDemo = true;
-        bootApp('Demo');
-        return;
-    }
+    try {
+        const hato = await fetchFromSheets('config');
+        if (hato && hato.animales) ANIMALES = hato.animales;
+    } catch (e) { console.warn('Could not load config', e) }
 
-    // Show login screen
-    showLogin();
+    buildAnimalInputs('ordeno-animal-grid', 'ordeno');
+    buildAnimalSelectors();
+    renderConfigAnimales();
+    loadDashboardStats();
+    updateNotificationBadge();
+    loadNotificationsFromFirebase();
 }
 
 function handleLogin(e) {
     e.preventDefault();
-    const user = document.getElementById('login-user').value.trim();
+    const email = document.getElementById('login-user').value.trim();
     const pass = document.getElementById('login-password').value;
     const errorEl = document.getElementById('login-error');
     const btn = document.getElementById('login-btn');
 
     errorEl.style.display = 'none';
-
-    if (!user || !pass) {
+    if (!email || !pass) {
         errorEl.textContent = 'Completa todos los campos';
         errorEl.style.display = 'block';
         return;
@@ -108,24 +122,46 @@ function handleLogin(e) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Verificando...';
 
-    // Local validation (will be replaced by Firebase)
-    setTimeout(() => {
-        if (user === LOCAL_CREDENTIALS.usuario && pass === LOCAL_CREDENTIALS.password) {
-            bootApp(user);
-            showToast('¡Bienvenido, ' + user + '!', 'success');
-        } else {
-            errorEl.textContent = 'Usuario o contraseña incorrectos';
-            errorEl.style.display = 'block';
-        }
-        btn.disabled = false;
-        btn.innerHTML = '🔓 Ingresar';
-    }, 600);
+    if (auth) {
+        // Firebase Authentication
+        auth.signInWithEmailAndPassword(email, pass)
+            .then(() => { showToast('¡Bienvenido!', 'success'); })
+            .catch(err => {
+                const messages = {
+                    'auth/user-not-found': 'Usuario no encontrado',
+                    'auth/wrong-password': 'Contraseña incorrecta',
+                    'auth/invalid-email': 'Correo inválido',
+                    'auth/too-many-requests': 'Demasiados intentos. Espera un momento.'
+                };
+                errorEl.textContent = messages[err.code] || 'Error de autenticación';
+                errorEl.style.display = 'block';
+                btn.disabled = false;
+                btn.innerHTML = '🔓 Ingresar';
+            });
+    } else {
+        // Demo mode fallback
+        setTimeout(() => {
+            if (email === LOCAL_CREDENTIALS.usuario && pass === LOCAL_CREDENTIALS.password) {
+                bootApp(email);
+                showToast('¡Bienvenido (modo demo)!', 'success');
+            } else {
+                errorEl.textContent = 'Usuario o contraseña incorrectos';
+                errorEl.style.display = 'block';
+            }
+            btn.disabled = false;
+            btn.innerHTML = '🔓 Ingresar';
+        }, 600);
+    }
 }
 
 function handleLogout() {
-    currentUser = null;
-    showLogin();
-    showToast('Sesión cerrada', 'info');
+    if (auth) {
+        auth.signOut().then(() => showToast('Sesión cerrada', 'info'));
+    } else {
+        currentUser = null;
+        showLogin();
+        showToast('Sesión cerrada', 'info');
+    }
 }
 
 
@@ -185,7 +221,19 @@ function initDateDefaults() {
     const mesSelect = document.getElementById('rentabilidad-mes');
     const anioSelect = document.getElementById('rentabilidad-anio');
     if (mesSelect) mesSelect.value = today.getMonth().toString();
-    if (anioSelect) anioSelect.value = today.getFullYear().toString();
+
+    // Populate years dynamically from 2024 to current+1
+    if (anioSelect) {
+        const currentYear = today.getFullYear();
+        anioSelect.innerHTML = '';
+        for (let y = 2024; y <= currentYear + 1; y++) {
+            const opt = document.createElement('option');
+            opt.value = y;
+            opt.textContent = y;
+            if (y === currentYear) opt.selected = true;
+            anioSelect.appendChild(opt);
+        }
+    }
 }
 
 
@@ -254,44 +302,114 @@ function setHorario(btn) {
 }
 
 
+// ─── NOTIFICATIONS ──────────────────────────────────────────
+let notifications = JSON.parse(localStorage.getItem('pamora_notifications') || '[]');
+
+function toggleNotifications() {
+    const dropdown = document.getElementById('notification-dropdown');
+    dropdown.classList.toggle('hidden');
+    if (!dropdown.classList.contains('hidden')) {
+        renderNotifications();
+    }
+}
+
+async function addNotification(text, type = 'info') {
+    const fresh = {
+        id: Date.now(),
+        text,
+        type,
+        time: new Date().toLocaleString(),
+        seen: false
+    };
+    notifications.unshift(fresh);
+    saveNotifications();
+    updateNotificationBadge();
+    renderNotifications();
+
+    // Sync to Firebase
+    if (db && currentUser) {
+        try {
+            await db.collection('notificaciones').add({
+                ...fresh,
+                userId: currentUser.name,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        } catch (e) { console.warn('Error saving notification', e); }
+    }
+}
+
+async function loadNotificationsFromFirebase() {
+    if (!db) return;
+    try {
+        const snapshot = await db.collection('notificaciones')
+            .where('seen', '==', false)
+            .orderBy('timestamp', 'desc')
+            .limit(20)
+            .get();
+
+        const fbNotifications = [];
+        snapshot.forEach(doc => fbNotifications.push({ firestoreId: doc.id, ...doc.data() }));
+
+        // Merge with local, avoid duplicates by id
+        const localIds = new Set(notifications.map(n => n.id));
+        fbNotifications.forEach(n => {
+            if (!localIds.has(n.id)) notifications.push(n);
+        });
+        notifications.sort((a, b) => b.id - a.id);
+        saveNotifications();
+        updateNotificationBadge();
+    } catch (e) { console.warn('Error loading notifications from Firebase', e); }
+}
+
+function renderNotifications() {
+    const list = document.getElementById('notification-list');
+    if (!list) return;
+
+    if (notifications.length === 0) {
+        list.innerHTML = '<div class="notification-empty">No hay notificaciones nuevas</div>';
+        return;
+    }
+
+    list.innerHTML = notifications.map(n => `
+        <div class="notification-item" style="border-left-color: ${n.type === 'alert' ? '#ef4444' : '#4ade80'}">
+            <div class="time">${n.time}</div>
+            <div class="text">${n.text}</div>
+        </div>
+    `).join('');
+}
+
+function updateNotificationBadge() {
+    const badge = document.getElementById('notification-badge');
+    if (!badge) return;
+    const unseen = notifications.length;
+    if (unseen > 0) {
+        badge.classList.remove('hidden');
+    } else {
+        badge.classList.add('hidden');
+    }
+}
+
+function clearNotifications() {
+    notifications = [];
+    saveNotifications();
+    updateNotificationBadge();
+    renderNotifications();
+}
+
+function saveNotifications() {
+    localStorage.setItem('pamora_notifications', JSON.stringify(notifications));
+}
+
 // ─── EVENT TYPE SWITCH ──────────────────────────────────────
 
 function switchEventoType(tipo) {
     document.getElementById('celo-fields').classList.toggle('hidden', tipo !== 'celo');
     document.getElementById('inseminacion-fields').classList.toggle('hidden', tipo !== 'inseminacion');
     document.getElementById('nacimiento-fields').classList.toggle('hidden', tipo !== 'nacimiento');
+    document.getElementById('otro-fields').classList.toggle('hidden', tipo !== 'otro');
 }
-
 
 // ─── FORM HANDLERS ──────────────────────────────────────────
-
-async function handleOrdeno(e) {
-    e.preventDefault();
-    const fecha = document.getElementById('ordeno-fecha').value;
-    const horario = document.getElementById('ordeno-horario').value;
-    const notas = document.getElementById('ordeno-notas').value;
-
-    const litros = {};
-    ANIMALES.forEach(animal => {
-        const input = document.getElementById(`ordeno-litros-${animal}`);
-        if (input && !input.disabled && input.value) {
-            litros[animal] = parseFloat(input.value) || 0;
-        }
-    });
-
-    const payload = {
-        tipo: 'produccion',
-        fecha,
-        horario,
-        litros,
-        notas,
-        animalesActivos: ANIMALES,
-        token: API_TOKEN
-    };
-
-    const btn = document.getElementById('ordeno-submit-btn');
-    await submitToSheets(payload, btn, 'ordeno-success', 'ordeno-form');
-}
 
 async function handleEvento(e) {
     e.preventDefault();
@@ -301,7 +419,6 @@ async function handleEvento(e) {
 
     if (tipo === 'celo') {
         payload.animal = document.getElementById('celo-animal').value;
-        payload.intensidad = document.getElementById('celo-intensidad').value;
         payload.duracion = document.getElementById('celo-duracion').value;
         payload.accionItem = document.getElementById('celo-accion').value;
         payload.observaciones = document.getElementById('celo-observaciones').value;
@@ -321,7 +438,7 @@ async function handleEvento(e) {
             showToast('Selecciona el animal', 'error');
             return;
         }
-    } else {
+    } else if (tipo === 'nacimiento') {
         payload.madre = document.getElementById('nac-madre').value;
         payload.cria = document.getElementById('nac-cria').value;
         payload.sexo = document.getElementById('nac-sexo').value;
@@ -332,11 +449,44 @@ async function handleEvento(e) {
             showToast('Completa madre y nombre de la cría', 'error');
             return;
         }
+    } else if (tipo === 'otro') {
+        payload.descripcion = document.getElementById('otro-descripcion').value;
+        payload.animal = document.getElementById('otro-animal').value;
+        payload.observaciones = document.getElementById('otro-observaciones').value;
+
+        if (!payload.descripcion) {
+            showToast('Ingresa una descripción para el evento', 'error');
+            return;
+        }
+
+        // Logic for Purge reminder
+        if (payload.descripcion.toLowerCase().includes('purga')) {
+            const datePurge = new Date(fecha);
+            datePurge.setDate(datePurge.getDate() + 8);
+            const reminderText = `Recordatorio: Re-purga para ${payload.animal || 'el hato'} el ${datePurge.toLocaleDateString()}`;
+            addNotification(reminderText, 'alert');
+        }
     }
 
     const btn = e.target.querySelector('button[type="submit"]');
     await submitToSheets(payload, btn, 'evento-success', 'evento-form');
 }
+
+// Initial badge update
+document.addEventListener('DOMContentLoaded', () => {
+    updateNotificationBadge();
+
+    // Add animal names to the "Otro" animal selector
+    const otroAnimal = document.getElementById('otro-animal');
+    if (otroAnimal) {
+        ANIMALES.forEach(animal => {
+            const opt = document.createElement('option');
+            opt.value = animal;
+            opt.textContent = `${getAnimalEmoji(animal)} ${animal}`;
+            otroAnimal.appendChild(opt);
+        });
+    }
+});
 
 async function handleGasto(e) {
     e.preventDefault();
@@ -359,7 +509,7 @@ async function handleGasto(e) {
 }
 
 
-// ─── API COMMUNICATION ──────────────────────────────────────
+// ─── API & FIREBASE COMMUNICATION ──────────────────────────
 
 async function submitToSheets(data, btn, successId, formId) {
     const originalHTML = btn.innerHTML;
@@ -367,44 +517,54 @@ async function submitToSheets(data, btn, successId, formId) {
     btn.innerHTML = '<span class="spinner"></span> Sincronizando...';
     showLoading(true);
 
-    // Hide previous success
-    const successEl = document.getElementById(successId);
-    if (successEl) successEl.classList.add('hidden');
-
     try {
-        if (APPS_SCRIPT_URL === 'TU_URL_DE_APPS_SCRIPT_AQUI') {
-            await new Promise(r => setTimeout(r, 1200));
+        if (db) {
+            // FIREBASE MODE
+            const collectionMap = {
+                'produccion': 'produccion',
+                'celo': 'eventos',
+                'inseminacion': 'eventos',
+                'nacimiento': 'eventos',
+                'otro': 'eventos',
+                'gasto': 'gastos',
+                'configuracion': 'config',
+                'parametros_rentabilidad': 'rentabilidad_params'
+            };
+
+            const coll = collectionMap[data.tipo] || 'misc';
+            await db.collection(coll).add({
+                ...data,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                user: currentUser.name
+            });
+
             showSyncSuccess(successId);
-            resetForm(formId);
+            if (formId) resetForm(formId);
+            showToast('🔥 Guardado en Firebase', 'success');
+            return;
+        }
+
+        if (APPS_SCRIPT_URL === 'TU_URL_DE_APPS_SCRIPT_AQUI') {
+            await new Promise(r => setTimeout(r, 800));
+            showSyncSuccess(successId);
+            if (formId) resetForm(formId);
             showToast('✅ Registro guardado (modo demo)', 'success');
             return;
         }
 
         const response = await fetch(APPS_SCRIPT_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
-
-        // Try to parse the response
-        try {
-            const result = await response.json();
-            if (result.success) {
-                showSyncSuccess(successId);
-                resetForm(formId);
-                showToast('☁️ ' + (result.data?.mensaje || 'Datos guardados en la nube'), 'success');
-            } else {
-                showToast('Error: ' + (result.error || 'Error desconocido'), 'error');
-            }
-        } catch {
-            // no-cors mode — can't read response
+        const result = await response.json();
+        if (result.success) {
             showSyncSuccess(successId);
-            resetForm(formId);
-            showToast('☁️ Datos enviados a Google Sheets', 'success');
+            if (formId) resetForm(formId);
+            showToast('☁️ Guardado en la nube', 'success');
         }
     } catch (error) {
         console.error('Error:', error);
-        showToast('Error de conexión: ' + error.message, 'error');
+        showToast('Error: ' + error.message, 'error');
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalHTML;
@@ -413,20 +573,89 @@ async function submitToSheets(data, btn, successId, formId) {
 }
 
 async function fetchFromSheets(accion, params = {}) {
-    try {
-        if (APPS_SCRIPT_URL === 'TU_URL_DE_APPS_SCRIPT_AQUI') {
+    if (db) {
+        try {
+            if (accion === 'config') {
+                const doc = await db.collection('config').doc('hato').get();
+                return doc.exists ? doc.data() : { animales: ANIMALES };
+            }
+            // For production/events, we fetch and format
+            const collectionMap = {
+                'produccion_mes': 'produccion',
+                'inseminaciones': 'eventos',
+                'nacimientos': 'eventos',
+                'celos': 'eventos',
+                'rentabilidad': 'produccion' // simplistic for now
+            };
+            const coll = collectionMap[accion];
+            if (!coll) return getDemoData(accion);
+
+            const snapshot = await db.collection(coll).get();
+            const filas = [];
+            snapshot.forEach(doc => filas.push(doc.data()));
+            return { filas };
+        } catch (e) {
+            console.error('Firebase fetch error', e);
             return getDemoData(accion);
         }
+    }
 
+    try {
+        if (APPS_SCRIPT_URL === 'TU_URL_DE_APPS_SCRIPT_AQUI') return getDemoData(accion);
         const urlParams = new URLSearchParams({ accion, token: API_TOKEN, ...params });
         const response = await fetch(`${APPS_SCRIPT_URL}?${urlParams}`);
         const result = await response.json();
-
-        if (result.success) return result.data;
-        else throw new Error(result.error);
+        return result.success ? result.data : getDemoData(accion);
     } catch (error) {
-        console.warn('Fallback a demo data:', error.message);
         return getDemoData(accion);
+    }
+}
+
+
+// ─── EXPORTAR A GOOGLE SHEETS (CSV) ─────────────────────────
+
+async function exportarCSV(coleccion) {
+    if (!db) {
+        showToast('Exportación solo disponible con Firebase activo', 'warning');
+        return;
+    }
+
+    showToast('Generando CSV...', 'info');
+    try {
+        const snapshot = await db.collection(coleccion).orderBy('timestamp', 'desc').get();
+        const filas = [];
+        snapshot.forEach(doc => filas.push({ id: doc.id, ...doc.data() }));
+
+        if (filas.length === 0) {
+            showToast('No hay datos para exportar', 'warning');
+            return;
+        }
+
+        const headers = Object.keys(filas[0]);
+        const csv = [
+            headers.join(','),
+            ...filas.map(fila =>
+                headers.map(h => {
+                    const val = fila[h];
+                    if (val === null || val === undefined) return '';
+                    const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                    return `"${str.replace(/"/g, '""')}"`;
+                }).join(',')
+            )
+        ].join('\n');
+
+        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `PaMora_${coleccion}_${new Date().toLocaleDateString('es-CO').replace(/\//g, '-')}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+
+        showToast(`✅ ${filas.length} registros exportados`, 'success');
+    } catch (e) {
+        console.error('Export error:', e);
+        showToast('Error al exportar: ' + e.message, 'error');
     }
 }
 
@@ -548,6 +777,188 @@ function setStatText(id, value) {
 
 let lastRentabilidadData = null;
 let concentradoPerAnimal = {}; // Stores individual Kg/day configurations per animal
+
+// ─── ANÁLISIS AUTOMÁTICO DEL MES ───────────────────────────
+
+const MESES_NOMBRES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+async function generarAnalisisMes() {
+    if (!lastRentabilidadData) {
+        showToast('Carga primero los datos del mes', 'warning');
+        return;
+    }
+
+    const { totalLitros, ingresos, gastos, ganancia, margen, mejorVaca, peorVaca, precioVenta, costoPorLitro } = lastRentabilidadData;
+    const mesEl = document.getElementById('rentabilidad-mes');
+    const anioEl = document.getElementById('rentabilidad-anio');
+    const mesNombre = mesEl ? MESES_NOMBRES[parseInt(mesEl.value)] : '';
+    const anio = anioEl ? anioEl.value : '';
+
+    const rentable = ganancia > 0;
+    const margenStr = margen > 0 ? `${margen.toFixed(1)}%` : `${margen.toFixed(1)}%`;
+    const emoji = rentable ? '✅' : '⚠️';
+    const veredicto = rentable ? 'El hato fue RENTABLE este mes.' : 'El hato operó con PÉRDIDA este mes.';
+
+    const analisis = `${emoji} <strong>${veredicto}</strong>
+<br><br>
+📅 <strong>Período analizado:</strong> ${mesNombre} ${anio}
+<br>
+🥛 <strong>Producción total:</strong> ${formatNumber(totalLitros)} litros — a un precio promedio de $${formatNumber(precioVenta)}/litro.
+<br>
+💵 <strong>Ingresos brutos estimados:</strong> $${formatNumber(ingresos)}
+<br>
+📉 <strong>Total de gastos registrados:</strong> $${formatNumber(gastos)}
+<br>
+🏆 <strong>Ganancia neta:</strong> $${formatNumber(ganancia)} — Margen: ${margenStr}
+<br>
+🧮 <strong>Costo de producción por litro:</strong> $${formatNumber(costoPorLitro)} ${costoPorLitro < precioVenta ? '(por debajo del precio de venta ✅)' : '(por encima del precio de venta ⚠️)'}
+<br><br>
+${mejorVaca ? `🐄 <strong>Vaca más rentable:</strong> ${mejorVaca}` : ''}
+${peorVaca ? `<br>🔻 <strong>Vaca menos rentable:</strong> ${peorVaca}` : ''}
+<br><br>
+${rentable
+            ? '💡 <em>Recomendación: Mantener el plan de alimentación actual. Considerar ampliar el hato si la demanda lo permite.</em>'
+            : '💡 <em>Recomendación: Revisar costos de concentrado y verificar si alguna vaca está en período de baja producción. Ajustar precio de venta si el mercado lo permite.</em>'}`;
+
+    const card = document.getElementById('analisis-card');
+    const texto = document.getElementById('analisis-texto');
+    if (card && texto) {
+        texto.innerHTML = analisis;
+        card.style.display = 'block';
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    showToast('✅ Análisis generado', 'success');
+}
+
+
+// ─── EXPORTAR REPORTE PDF COMPLETO ──────────────────────────
+
+async function exportarReportePDF() {
+    if (!lastRentabilidadData) {
+        showToast('Genera primero el análisis del mes', 'warning');
+        return;
+    }
+
+    const mesEl = document.getElementById('rentabilidad-mes');
+    const anioEl = document.getElementById('rentabilidad-anio');
+    const mesNombre = mesEl ? MESES_NOMBRES[parseInt(mesEl.value)] : 'Mes';
+    const anio = anioEl ? anioEl.value : '';
+
+    showToast('Generando PDF...', 'info');
+
+    // If html2canvas and jsPDF are available
+    if (typeof html2canvas !== 'undefined' && typeof jspdf !== 'undefined') {
+        const { jsPDF } = jspdf;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        let y = 15;
+
+        // Header
+        pdf.setFontSize(20);
+        pdf.setTextColor(34, 197, 94);
+        pdf.text('PaMora Leche', 15, y);
+        y += 8;
+        pdf.setFontSize(13);
+        pdf.setTextColor(60, 60, 60);
+        pdf.text(`Reporte de Rentabilidad — ${mesNombre} ${anio}`, 15, y);
+        y += 6;
+        pdf.setFontSize(9);
+        pdf.setTextColor(120, 120, 120);
+        pdf.text(`Generado el ${new Date().toLocaleDateString('es-CO')}`, 15, y);
+        y += 10;
+
+        // KPIs
+        const { totalLitros, ingresos, gastos, ganancia, margen, costoPorLitro } = lastRentabilidadData;
+        pdf.setFontSize(11);
+        pdf.setTextColor(30, 30, 30);
+        const kpis = [
+            [`Total Litros: ${formatNumber(totalLitros)} L`, `Ingresos: $${formatNumber(ingresos)}`],
+            [`Gastos: $${formatNumber(gastos)}`, `Ganancia: $${formatNumber(ganancia)}`],
+            [`Margen: ${margen.toFixed(1)}%`, `Costo/Litro: $${formatNumber(costoPorLitro)}`],
+        ];
+        kpis.forEach(row => {
+            pdf.text(row[0], 15, y);
+            pdf.text(row[1], 110, y);
+            y += 7;
+        });
+        y += 5;
+
+        // Analysis text
+        const analisisEl = document.getElementById('analisis-texto');
+        if (analisisEl && analisisEl.textContent.trim()) {
+            pdf.setFontSize(10);
+            pdf.setTextColor(60, 60, 60);
+            const lines = pdf.splitTextToSize(analisisEl.textContent.replace(/\s+/g, ' ').trim(), 180);
+            pdf.text(lines, 15, y);
+            y += lines.length * 5 + 5;
+        }
+
+        // Capture charts
+        const reportContainer = document.getElementById('reporte-container');
+        if (reportContainer) {
+            const canvas = await html2canvas(reportContainer, { backgroundColor: '#0d1a0d', scale: 1.5 });
+            const imgData = canvas.toDataURL('image/png');
+            const imgHeight = (canvas.height * 180) / canvas.width;
+            if (y + imgHeight > 280) { pdf.addPage(); y = 15; }
+            pdf.addImage(imgData, 'PNG', 15, y, 180, imgHeight);
+        }
+
+        pdf.save(`PaMora_Rentabilidad_${mesNombre}_${anio}.pdf`);
+        showToast('✅ PDF descargado', 'success');
+    } else {
+        // Fallback: simple window.print
+        window.print();
+    }
+}
+
+
+// ─── GRÁFICO DE TENDENCIA MENSUAL ───────────────────────────
+
+let chartTendencia = null;
+
+async function buildTendencialChart() {
+    const canvas = document.getElementById('chart-tendencia-mensual');
+    if (!canvas) return;
+
+    // Get last 6 months of data
+    const today = new Date();
+    const labels = [];
+    const valores = [];
+
+    for (let i = 5; i >= 0; i--) {
+        const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        labels.push(MESES_NOMBRES[d.getMonth()].substring(0, 3) + ' ' + String(d.getFullYear()).substring(2));
+        const mesData = await fetchFromSheets('produccion_mes', { mes: d.getMonth(), anio: d.getFullYear() });
+        const total = (mesData?.filas || []).reduce((sum, r) => sum + (parseFloat(r[2]) || 0), 0);
+        valores.push(parseFloat(total.toFixed(1)));
+    }
+
+    if (chartTendencia) chartTendencia.destroy();
+    chartTendencia = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                label: 'Litros totales',
+                data: valores,
+                borderColor: '#4ade80',
+                backgroundColor: 'rgba(74,222,128,0.15)',
+                borderWidth: 2.5,
+                pointBackgroundColor: '#4ade80',
+                pointRadius: 5,
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            ...chartOptions('Litros'),
+            plugins: {
+                legend: { display: false },
+                tooltip: tooltipStyle()
+            }
+        }
+    });
+}
+
 
 async function loadRentabilidad() {
     const mesEl = document.getElementById('rentabilidad-mes');
@@ -701,6 +1112,26 @@ function renderRentabilidad() {
     }
 
     buildGastosCategoriaChart(dynamicData);
+
+    // Expose final calculated KPIs for generarAnalisisMes
+    const allCowGains = ANIMALES.map(a => {
+        const p = data.produccionPorAnimal?.[a];
+        if (!p || p.total === 0) return null;
+        return { animal: a, ganancia: (p.total * precioVenta) - ((concentradoPerAnimal[a] ?? 4) * confPrecioKg * (data.diasRegistrados || 1)) };
+    }).filter(Boolean);
+    allCowGains.sort((a, b) => b.ganancia - a.ganancia);
+
+    lastRentabilidadData = {
+        ...data,
+        ingresos,
+        gastos: recalculatedTotalGastos,
+        ganancia: recalculatedGanancia,
+        margen: parseFloat(recalculatedMargen),
+        costoPorLitro: data.totalLitros > 0 ? recalculatedTotalGastos / data.totalLitros : 0,
+        precioVenta,
+        mejorVaca: allCowGains[0]?.animal,
+        peorVaca: allCowGains[allCowGains.length - 1]?.animal
+    };
 }
 
 function updateConcentradoVaca(animal, value) {

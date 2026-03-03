@@ -58,9 +58,9 @@
 
         <form id="login-form" onsubmit="handleLogin(event)">
           <div class="mb-3 text-start">
-            <label for="login-user" class="form-label">Usuario</label>
-            <input type="text" id="login-user" class="form-control" placeholder="admin" required
-              autocomplete="username">
+            <label for="login-user" class="form-label">📧 Correo electrónico</label>
+            <input type="email" id="login-user" class="form-control" placeholder="admin@pamora.co" required
+              autocomplete="email">
           </div>
           <div class="mb-3 text-start">
             <label for="login-password" class="form-label">Contraseña</label>
@@ -84,9 +84,25 @@
       <header class="app-header">
         <div class="header-brand">
           <span class="header-brand-icon">🐄</span>
-          <span class="header-brand-text">Pamora</span>
+          <h1 class="header-brand-text">PaMora Leche</h1>
         </div>
         <div class="header-user">
+          <!-- Notification Bell -->
+          <div class="header-notifications">
+            <button class="nav-icon-btn" id="notification-bell" onclick="toggleNotifications()">
+              <span>🔔</span>
+              <span id="notification-badge" class="badge-dot hidden"></span>
+            </button>
+            <div id="notification-dropdown" class="notification-dropdown hidden">
+              <div class="notification-header">
+                <h6>Notificaciones</h6>
+                <button onclick="clearNotifications()" class="btn-clear-all">Limpiar</button>
+              </div>
+              <div id="notification-list" class="notification-list">
+                <div class="notification-empty">No hay notificaciones nuevas</div>
+              </div>
+            </div>
+          </div>
           <span id="user-name" class="header-user-name"></span>
           <button class="btn-outline-pamora" onclick="handleLogout()">Salir</button>
         </div>
@@ -155,7 +171,7 @@
             </div>
             <div class="dash-card"
               onclick="switchTab('gestacion'); document.getElementById('tab-gestacion').style.display = 'inline-block';">
-              <span class="dash-card-icon">🤰</span>
+              <span class="dash-card-icon">🐄</span>
               <div class="dash-card-title">Preñeces</div>
               <div class="dash-card-subtitle">Control gestación</div>
             </div>
@@ -190,7 +206,7 @@
                 <div class="stat-label">Animales</div>
               </div>
               <div class="stat-card">
-                <div class="stat-icon">🤰</div>
+                <div class="stat-icon">🐄</div>
                 <div class="stat-value" id="stat-prenadas">—</div>
                 <div class="stat-label">Preñadas</div>
               </div>
@@ -247,20 +263,25 @@
           </div>
 
           <div class="card-pamora form-card">
+            <!-- Quick cow management shortcut -->
+            <div class="manage-cows-shortcut" onclick="switchTab('config')">
+              <span>🐄</span> Gestionar Hato (Agregar/Quitar Vacas)
+            </div>
+
             <form id="ordeno-form" onsubmit="handleOrdeno(event)">
 
               <div class="row g-3">
                 <div class="col-6">
-                  <label class="form-label">📅 Fecha</label>
+                  <label class="form-label">📅 Fecha de Ordeño</label>
                   <input type="date" id="ordeno-fecha" class="form-control" required>
                 </div>
                 <div class="col-6">
-                  <label class="form-label">⏰ Horario</label>
+                  <label class="form-label">⏰ Horario (Mañana/Tarde)</label>
                   <div class="horario-toggle">
                     <button type="button" class="horario-btn active" data-horario="AM" onclick="setHorario(this)">☀️
-                      Mañana</button>
+                      AM</button>
                     <button type="button" class="horario-btn" data-horario="PM" onclick="setHorario(this)">🌙
-                      Tarde</button>
+                      PM</button>
                   </div>
                   <input type="hidden" id="ordeno-horario" value="AM">
                 </div>
@@ -316,6 +337,7 @@
                     <option value="celo">🔥 Celo</option>
                     <option value="inseminacion">💉 Inseminación</option>
                     <option value="nacimiento">🐣 Nacimiento</option>
+                    <option value="otro">📦 Otro</option>
                   </select>
                 </div>
                 <div class="col-6">
@@ -335,18 +357,10 @@
                     </select>
                   </div>
                   <div class="col-6">
-                    <label class="form-label">Intensidad</label>
-                    <select id="celo-intensidad" class="form-select">
-                      <option value="Fuerte">🔴 Fuerte</option>
-                      <option value="Moderado">🟡 Moderado</option>
-                      <option value="Leve">🟢 Leve</option>
-                    </select>
-                  </div>
-                  <div class="col-6">
                     <label class="form-label">Duración estimada (horas)</label>
                     <input type="number" id="celo-duracion" class="form-control" min="0" step="1" placeholder="12">
                   </div>
-                  <div class="col-6">
+                  <div class="col-12">
                     <label class="form-label">Acción tomada</label>
                     <select id="celo-accion" class="form-select">
                       <option value="Programar inseminación">📋 Programar inseminación</option>
@@ -424,6 +438,29 @@
                   <div class="col-12">
                     <label class="form-label">Observaciones</label>
                     <textarea id="nac-observaciones" class="form-control" rows="2" placeholder="Notas..."></textarea>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Otro Evento Fields -->
+              <div id="otro-fields" class="form-section hidden">
+                <div class="form-section-title">📦 Otros Eventos</div>
+                <div class="row g-3">
+                  <div class="col-12">
+                    <label class="form-label">Descripción del evento</label>
+                    <input type="text" id="otro-descripcion" class="form-control"
+                      placeholder="Ej: Purga, Vacunación aftosa...">
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label">Animal relacionado (Opcional)</label>
+                    <select id="otro-animal" class="form-select">
+                      <option value="">— Todos / Ninguno —</option>
+                    </select>
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label">Observaciones</label>
+                    <textarea id="otro-observaciones" class="form-control" rows="2"
+                      placeholder="Notas adicionales..."></textarea>
                   </div>
                 </div>
               </div>
@@ -514,10 +551,8 @@
               <p class="section-subtitle" id="rentabilidad-periodo">Cargando datos...</p>
             </div>
 
-            <div class="d-flex gap-2">
-              <select id="rentabilidad-mes" class="form-select"
-                style="width: 130px; background-color: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1);"
-                onchange="loadRentabilidad()">
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+              <select id="rentabilidad-mes" class="form-select" style="width: 130px;" onchange="loadRentabilidad()">
                 <option value="0">Enero</option>
                 <option value="1">Febrero</option>
                 <option value="2">Marzo</option>
@@ -531,15 +566,15 @@
                 <option value="10">Noviembre</option>
                 <option value="11">Diciembre</option>
               </select>
-              <select id="rentabilidad-anio" class="form-select"
-                style="width: 100px; background-color: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1);"
-                onchange="loadRentabilidad()">
-                <option value="2025">2025</option>
-                <option value="2026">2026</option>
-                <option value="2027">2027</option>
+              <select id="rentabilidad-anio" class="form-select" style="width: 100px;" onchange="loadRentabilidad()">
+                <!-- Populated dynamically by JS -->
               </select>
-              <button class="btn-pamora btn-export" onclick="exportarPDF()" style="width: auto; padding: 10px 20px;">
-                📄 Exportar
+              <button class="btn-pamora" onclick="generarAnalisisMes()"
+                style="width: auto; padding: 10px 20px; background: linear-gradient(135deg,#3b82f6,#2563eb);">
+                🧠 Generar Análisis
+              </button>
+              <button class="btn-pamora" onclick="exportarReportePDF()" style="width: auto; padding: 10px 20px;">
+                📄 Exportar PDF
               </button>
             </div>
           </div>
@@ -602,6 +637,14 @@
               </div>
             </div>
 
+            <!-- Trend Chart -->
+            <div class="card-pamora mb-3">
+              <div class="card-title">📈 Tendencia de Producción Mensual</div>
+              <div style="height: 250px;">
+                <canvas id="chart-tendencia-mensual"></canvas>
+              </div>
+            </div>
+
             <!-- Charts -->
             <div class="charts-grid">
               <div class="chart-card">
@@ -618,7 +661,12 @@
               </div>
             </div>
 
-            <!-- Per-Cow Profitability -->
+            <!-- AI Analysis Card -->
+            <div class="card-pamora mt-3" id="analisis-card" style="display:none;">
+              <div class="card-title">🧠 Análisis del Mes</div>
+              <div id="analisis-texto" style="line-height:1.8; font-size:0.95rem; color:#e2e8f0;"></div>
+            </div>
+
             <div class="card-pamora mt-3">
               <div class="card-title">🐄 Rentabilidad por Vaca <span
                   style="font-size:0.75rem;color:var(--text-muted);font-weight:400;">(sin costo de concentrado)</span>
@@ -778,6 +826,11 @@
 
   <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
   <!-- App Logic -->
   <script src="app.js"></script>
