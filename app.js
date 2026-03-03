@@ -103,6 +103,7 @@ async function bootApp(userName) {
     loadDashboardStats();
     updateNotificationBadge();
     loadNotificationsFromFirebase();
+    checkPartoAlerts();
 }
 
 function handleLogin(e) {
@@ -359,6 +360,39 @@ async function loadNotificationsFromFirebase() {
         saveNotifications();
         updateNotificationBadge();
     } catch (e) { console.warn('Error loading notifications from Firebase', e); }
+}
+
+async function checkPartoAlerts() {
+    if (!db || !currentUser) return;
+
+    try {
+        const snapshot = await db.collection('eventos')
+            .where('tipo', '==', 'Inseminación')
+            .get();
+
+        const today = new Date();
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            const fechaIns = new Date(data.fecha || data.timestamp?.toDate());
+            if (!isNaN(fechaIns)) {
+                // Gestación promedio vaca: 283 días
+                const fechaParto = new Date(fechaIns);
+                fechaParto.setDate(fechaParto.getDate() + 283);
+
+                const diffTime = fechaParto - today;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                if (diffDays > 0 && diffDays <= 30) {
+                    const msg = `🤰 Recordatorio: Próximo parto para ${data.animal} aprox. el ${fechaParto.toLocaleDateString()} (en ${diffDays} días)`;
+                    // Evitar duplicar si ya existe localmente esta notificación hoy
+                    const exists = notifications.some(n => n.text === msg);
+                    if (!exists) {
+                        addNotification(msg, 'warning');
+                    }
+                }
+            }
+        });
+    } catch (e) { console.warn('Error checking birth alerts', e); }
 }
 
 function renderNotifications() {
@@ -895,7 +929,19 @@ async function exportarReportePDF() {
         // Capture charts
         const reportContainer = document.getElementById('reporte-container');
         if (reportContainer) {
-            const canvas = await html2canvas(reportContainer, { backgroundColor: '#0d1a0d', scale: 1.5 });
+            // Temporarily hide elements not needed in PDF
+            const toHide = document.querySelectorAll('.btn-pamora, .section-header select, .section-header button');
+            toHide.forEach(el => el.style.visibility = 'hidden');
+
+            const canvas = await html2canvas(reportContainer, {
+                backgroundColor: '#0d1a0d',
+                scale: 1.5,
+                useCORS: true,
+                logging: false
+            });
+
+            toHide.forEach(el => el.style.visibility = 'visible');
+
             const imgData = canvas.toDataURL('image/png');
             const imgHeight = (canvas.height * 180) / canvas.width;
             if (y + imgHeight > 280) { pdf.addPage(); y = 15; }
