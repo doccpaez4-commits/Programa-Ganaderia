@@ -759,7 +759,9 @@ async function fetchFromSheets(accion, params = {}) {
             const coll = collectionMap[accion];
             if (!coll) return getDemoData(accion);
 
-            const snapshot = await db.collection(coll).get();
+            const fetchPromise = db.collection(coll).get();
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout Fetch Sheets')), 5000));
+            const snapshot = await Promise.race([fetchPromise, timeoutPromise]);
             const filas = [];
             snapshot.forEach(doc => filas.push(doc.data()));
             return { filas };
@@ -1151,6 +1153,12 @@ async function buildTendencialChart() {
 
 
 let herdInventoryMeta = {}; // Stores animal category, breed, birthdate
+// Helper to avoid Firestore path issues with names like "Hércules/Ranger"
+function getAnimalDocId(name) {
+    if (!name) return 'unknown';
+    return name.toString().replace(/\//g, '_').trim();
+}
+
 let currentHerdCenso = [];  // To allow CSV export
 
 async function loadHerdInventory() {
@@ -1167,16 +1175,20 @@ async function loadHerdInventory() {
 
         // Use a 10s timeout for Firestore queries to avoid infinite hang
         const fetchPromise = db.collection('hato_detalle').get();
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout Firestore')), 10000));
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout Firestore Detail')), 10000));
 
+        updateSyncProgress(80, 'Descargando detalles del hato...');
         const metaSnap = await Promise.race([fetchPromise, timeoutPromise]);
 
-        updateSyncProgress(85, 'Procesando animales...');
+        updateSyncProgress(90, 'Procesando censo...');
         herdInventoryMeta = {};
         const allAnimalNamesInMeta = [];
         metaSnap.forEach(doc => {
-            herdInventoryMeta[doc.id] = doc.data();
-            allAnimalNamesInMeta.push(doc.id);
+            const data = doc.data();
+            // Index by nombre (real name) not doc.id (sanitized), with fallback to doc.id
+            const realName = data.nombre || doc.id.replace(/_/g, '/');
+            herdInventoryMeta[realName] = data;
+            allAnimalNamesInMeta.push(realName);
         });
 
         // 2. Determine physiological state
@@ -1184,7 +1196,7 @@ async function loadHerdInventory() {
         let countProduccion = 0;
         let countNoProd = 0;
 
-        // Use all names from metadata for the census (source of truth)
+        // Use all real names from metadata for the census (source of truth)
         for (const animal of allAnimalNamesInMeta) {
             let meta = herdInventoryMeta[animal] || {};
 
@@ -1203,7 +1215,7 @@ async function loadHerdInventory() {
             let colorEstado = '#4ade80';
 
             if (meta.status === 'Retirado' || category === 'Vendida' || category === 'Baja') {
-                estado = category.toUpperCase();
+                estado = meta.motivoRetiro ? `VENDIDA/BAJA (${meta.motivoRetiro})` : 'VENDIDA/BAJA';
                 colorEstado = '#ef4444';
             } else {
                 // Default to category name as state
@@ -1214,11 +1226,14 @@ async function loadHerdInventory() {
                 } else if (category === 'Vaca (Secando)') {
                     estado = 'SECANDO 💤';
                     colorEstado = '#f59e0b';
+                } else if (category === 'Próxima parto') {
+                    estado = 'PRÓXIMA PARTO 🤰';
+                    colorEstado = '#a78bfa';
                 } else if (['Ternera', 'Novilla'].includes(category)) {
-                    estado = 'CRECIMIENTO 🌱';
+                    estado = 'TERNERA 🌱';
                     colorEstado = '#60a5fa';
                 } else if (category === 'Ternero') {
-                    estado = 'MACHO 🐃';
+                    estado = 'TERNERO 🐃';
                     colorEstado = '#fb7185';
                 }
             }
@@ -1331,43 +1346,55 @@ async function processExcelImport() {
     const metaBatch = {};
 
     rows.forEach((cols, index) => {
-        // Skip header if detected
+        // Skip header row if detected
         if (index === 0 && (cols[0]?.toLowerCase().includes('id') || cols[1]?.toLowerCase().includes('nombre'))) {
             return;
         }
 
         if (cols.length >= 2) {
-            const id = cols[0] || '—';
+            const id = cols[0] || '';
             const name = cols[1];
             if (!name) return;
 
-            const raza = cols[2] || '—';
+            const raza = cols[2] || '';
             const birth = cols[3] || '';
             const father = cols[4] || '';
             const mother = cols[5] || '';
             const register = cols[6] || '';
-            const rawStatus = (cols[7] || '').toLowerCase();
-            const birthValue = cols[8] || '';
+            const rawStatus = (cols[7] || '').toLowerCase().trim();
+            const dateRetiro = cols[8] || '';
             const causeValue = cols[9] || '';
             const notes = cols[10] || '';
 
-            // Detect Category
-            let category = 'Vaca';
-            if (rawStatus.includes('terner')) {
-                category = rawStatus.includes('ternero') ? 'Ternero' : 'Ternera';
+            // Detect Category from rawStatus (Spanish values)
+            let category = 'Vaca (Producción)'; // default
+            if (rawStatus.includes('lactando')) {
+                category = 'Vaca (Producción)';
+            } else if (rawStatus.includes('secando') || rawStatus.includes('secas')) {
+                category = 'Vaca (Secando)';
+            } else if (rawStatus.includes('próxima parto') || rawStatus.includes('proxima parto')) {
+                category = 'Próxima parto';
+            } else if (rawStatus.includes('ternero')) {
+                category = 'Ternero';
+            } else if (rawStatus.includes('ternera')) {
+                category = 'Ternera';
+            } else if (rawStatus.includes('novilla')) {
+                category = 'Novilla';
+            } else if (rawStatus.includes('toro')) {
+                category = 'Toro';
+            } else if (rawStatus.includes('vendida') || rawStatus.includes('vendido')) {
+                category = 'Vendida';
+            } else if (rawStatus.includes('baja')) {
+                category = 'Baja';
             }
-            if (rawStatus.includes('novilla')) category = 'Novilla';
-            if (rawStatus.includes('toro')) category = 'Toro';
 
-            // Detect Status
+            // Detect Retire Status
             let status = 'Activo';
-            if (rawStatus.includes('vendida') || rawStatus.includes('baja') || birthValue) {
+            if (rawStatus.includes('vendida') || rawStatus.includes('vendido') || rawStatus.includes('baja') || dateRetiro) {
                 status = 'Retirado';
             }
 
-            if (status === 'Activo' || status === 'Retirado') {
-                newAnimalsList.push(name);
-            }
+            newAnimalsList.push(name);
 
             metaBatch[name] = {
                 idAnimal: id,
@@ -1378,7 +1405,7 @@ async function processExcelImport() {
                 madre: mother,
                 registro: register,
                 status: status,
-                fechaRetiro: birthValue,
+                fechaRetiro: dateRetiro,
                 motivoRetiro: causeValue || (rawStatus.includes('vendida') ? 'Venta' : (rawStatus.includes('baja') ? 'Baja' : '')),
                 notas: notes,
                 categoria: category
@@ -1405,7 +1432,7 @@ async function processExcelImport() {
         // 2. Batch update animal details
         const batch = db.batch();
         for (const [name, data] of Object.entries(metaBatch)) {
-            const docRef = db.collection('hato_detalle').doc(name);
+            const docRef = db.collection('hato_detalle').doc(getAnimalDocId(name));
             batch.set(docRef, {
                 ...data,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -1433,14 +1460,14 @@ function renderHerdInventory(items, prod, noprod) {
     document.getElementById('censo-produccion').textContent = prod;
     document.getElementById('censo-no-productivo').textContent = noprod;
 
-    const mantCost = parseFloat(document.getElementById('costo-mantenimiento-no-prod')?.value) || 50000;
-
     tbody.innerHTML = items.map(item => {
-        const isProduccion = item.estado.includes('LACTANDO');
+        const notas = herdInventoryMeta[item.nombre]?.notas || '';
+        const notasHtml = notas ? `<span title="${notas.replace(/"/g, '&quot;')}" style="cursor:help; color:#60a5fa;">📝</span>` : '';
+        const escapedName = item.nombre.replace(/'/g, "\\'");
 
         return `
             <tr>
-                <td style="font-family:monospace; font-weight:700;">${item.idAnimal}</td>
+                <td style="font-family:monospace; font-weight:700;">${item.idAnimal || '—'}</td>
                 <td><strong>${item.nombre}</strong></td>
                 <td>${item.raza}</td>
                 <td style="font-size:0.8rem;">${item.fechaNac}</td>
@@ -1449,10 +1476,11 @@ function renderHerdInventory(items, prod, noprod) {
                 <td style="font-size:0.8rem; color:var(--text-muted);">${item.registro}</td>
                 <td><span style="color:${item.color}; font-weight:600;">${item.estado}</span></td>
                 <td style="font-size:0.75rem; color:#ef4444;">${item.baja}</td>
+                <td>${notasHtml}</td>
                 <td>
                     <div class="d-flex gap-1">
-                        <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditAnimalModal('${item.nombre}')" title="Editar">📝</button>
-                        <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem; background:#ef4444;" onclick="openRemoveAnimalModal('${item.nombre}')" title="Retirar">📤</button>
+                        <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditAnimalModal('${escapedName}')" title="Editar">📝</button>
+                        <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem; background:#ef4444;" onclick="openRemoveAnimalModal('${escapedName}')" title="Retirar">📤</button>
                     </div>
                 </td>
             </tr>
@@ -1473,30 +1501,31 @@ function closeAddAnimalModal() {
 }
 
 async function seedInitialHerd() {
-    if (!confirm('¿Desea cargar el hato inicial base? Esto agregará 10 animales preconfigurados.')) return;
+    if (!confirm('¿Desea cargar el hato completo (20 animales)? Esto reemplazará los registros existentes con datos actualizados.')) return;
     if (!db) { showToast('Acción no disponible en modo Demo', 'warning'); return; }
 
+    // ─── HATO COMPLETO (Actualizado Marzo 2026) ────────────────────────────────
     const initialHerd = [
-        { name: 'Moli', id: '—', breed: 'Holstein', cat: 'Vaca (Producción)', father: '—', mother: '—', status: 'Activo' },
-        { name: 'Dulce', id: '—', breed: 'Ayrshire', cat: 'Vaca (Producción)', father: '—', mother: '—', status: 'Activo' },
-        { name: 'Morocha', id: '—', breed: 'Angus', cat: 'Vaca (Producción)', father: '—', mother: '—', status: 'Activo' },
-        { name: 'Miel (2115)', id: '2115', breed: 'Montbeliarde/Holstein', birth: '07/04/2023', father: 'N19', mother: '1690-Montbeliarde', cat: 'Vaca (Producción)', status: 'Activo' },
-        { name: 'Mapi', id: '2102', breed: 'Holstein', birth: '09/01/2023', father: 'Porsche 556HO1303', mother: '1981', cat: 'Vaca (Producción)', status: 'Activo' },
-        { name: 'Hércules/Ranger', id: '—', breed: 'Montbeliarde', birth: '29/04/2025', father: 'Ranger Red 7HO12344', mother: 'Miel', cat: 'Ternera', status: 'Activo' },
-        { name: 'Conny', id: '—', breed: 'Jersey', birth: '27/11/2024', father: '—', mother: '—', cat: 'Ternera', status: 'Activo' },
-        { name: 'Martina', id: '—', breed: 'Holstein', birth: '26/06/2023', father: '—', mother: '—', cat: 'Baja', status: 'Retirado', reason: 'Baja Produccion', dateRet: '14/02/2026' },
-        { name: 'Sol', id: '2112', breed: 'Holstein', birth: '27/03/2023', father: 'Guru 14HO7794', mother: '2010', cat: 'Vaca (Producción)', status: 'Activo' },
-        { name: 'Nube', id: '2114', breed: 'Holstein', birth: '29/03/2023', father: 'Guru 14HO7794', mother: '2005', cat: 'Vaca (Producción)', status: 'Activo' },
-        { name: 'Bambi', id: '—', breed: 'Angus', birth: '16/04/2025', father: 'Holstein', mother: 'Morocha', cat: 'Ternera', status: 'Activo' },
-        { name: 'Mandarina', id: '—', breed: 'Normando', cat: 'Baja', status: 'Retirado', reason: 'Cambio', dateRet: '14/02/2026', notes: '01/10/2025 aborto, 4 meses aprox.' },
-        { name: 'Gurú', id: '—', breed: 'Holstein', birth: '13/06/2025', father: 'Quick Work', mother: 'nube', cat: 'Ternero', status: 'Activo' },
-        { name: 'Augusto', id: '—', breed: 'Angus', birth: '06/06/2025', cat: 'Baja', status: 'Retirado', reason: 'Venta para crianza', dateRet: '10/06/2025' },
-        { name: 'Lulu', id: '—', breed: 'Holstein', birth: '26/06/2025', father: 'River Red 17HO16781', mother: 'Sol 2112', cat: 'Ternera', status: 'Activo', notes: 'destete lulu 15/10/2025 2 tasas de concentrado y una de suplemento por ración' },
-        { name: 'Consentida', id: '—', breed: 'Holstein Red', birth: '08/08/2025', father: '—', mother: 'Moli', cat: 'Ternera', status: 'Activo', notes: '24/10/2025 se baja la leche a 2 litros y medio se empieza a dar una taza de concentrado por ración el 01/11/2025, destete completo el 14/11/2025 aumenta racion concentrado a 2 tazas' },
-        { name: 'MacFly', id: '—', breed: 'Holstein Red', birth: '23/09/2025', father: 'Desconocido', mother: 'Martina', cat: 'Ternero', status: 'Retirado', reason: 'venta para crianza' },
-        { name: 'Chilindrina', id: '2143', breed: 'Holstein', birth: '18/12/2023', father: 'BUTLER 7HO12195', mother: '1881', cat: 'Vaca (Secando)', status: 'Activo' },
-        { name: 'Miel (2159)', id: '2159', breed: 'Montbeliarde/Holstein', birth: '10/03/2024', father: 'Ranger-Red 7HO12344', mother: '1690', cat: 'Vaca (Secando)', status: 'Activo' },
-        { name: 'Regalo', id: '—', breed: 'Holstein', birth: '10/02/2026', father: 'FOX 0200H010911', mother: '2092', cat: 'Ternera', status: 'Activo' }
+        { name: 'Moli', id: '', breed: 'Holstein', cat: 'Vaca (Producción)', status: 'Activo' },
+        { name: 'Dulce', id: '', breed: 'Ayrshire', cat: 'Vaca (Producción)', status: 'Activo' },
+        { name: 'Morocha', id: '', breed: 'Angus', cat: 'Vaca (Producción)', status: 'Activo' },
+        { name: 'Miel', id: '2115', breed: 'Montbeliarde/Holstein', birth: '2023-04-07', father: 'N19', mother: '1690-Montbeliarde', cat: 'Vaca (Producción)', status: 'Activo' },
+        { name: 'Mapi', id: '2102', breed: 'Holstein', birth: '2023-01-09', father: 'Porsche 556HO1303', mother: '1981', cat: 'Vaca (Producción)', status: 'Activo' },
+        { name: 'Hércules/Ranger', id: '', breed: 'Montbeliarde', birth: '2025-04-29', father: 'Ranger Red 7HO12344', mother: 'Miel', cat: 'Ternera', status: 'Activo', notes: '11/06/2025 cambio a 5 litros. 23/06/2025 cambio a 4 litros diarios. 24/07/2025 2L mañana 1L tarde. 29/07/2025 2L/día. 4 Agosto desteto Bambi y Tato, se les compra concentrado.' },
+        { name: 'Conny', id: '', breed: 'Jersey', birth: '2024-11-27', cat: 'Ternera', status: 'Activo' },
+        { name: 'Martina', id: '', breed: 'Holstein', birth: '2023-06-26', cat: 'Vendida', status: 'Retirado', reason: 'Baja Produccion', dateRet: '2026-02-14' },
+        { name: 'Sol', id: '2112', breed: 'Holstein', birth: '2023-03-27', father: 'Gurú 14HO7794', mother: '2010', cat: 'Vaca (Producción)', status: 'Activo' },
+        { name: 'Nube', id: '2114', breed: 'Holstein', birth: '2023-03-29', father: 'Gurú 14HO7794', mother: '2005', cat: 'Vaca (Producción)', status: 'Activo' },
+        { name: 'Bambi', id: '', breed: 'Angus', birth: '2025-04-16', father: 'Holstein', mother: 'Morocha', cat: 'Ternera', status: 'Activo' },
+        { name: 'Mandarina', id: '', breed: 'Normando', cat: 'Vendida', status: 'Retirado', reason: 'Cambio', dateRet: '2026-02-14', notes: '01/10/2025 aborto, 4 meses aprox.' },
+        { name: 'Gurú', id: '', breed: 'Holstein', birth: '2025-06-13', father: 'Quick Work', mother: 'Nube', cat: 'Ternero', status: 'Activo' },
+        { name: 'Augusto', id: '', breed: 'Angus', birth: '2025-06-06', cat: 'Vendida', status: 'Retirado', reason: 'Venta para crianza', dateRet: '2025-06-10' },
+        { name: 'Lulu', id: '', breed: 'Holstein', birth: '2025-06-26', father: 'River Red 17HO16781', mother: 'Sol 2112', cat: 'Ternera', status: 'Activo', notes: 'destete lulu 15/10/2025: 2 tasas concentrado y 1 suplemento por ración' },
+        { name: 'Consentida', id: '', breed: 'Holstein Red', birth: '2025-08-08', mother: 'Moli', cat: 'Ternera', status: 'Activo', notes: '24/10/2025 baja a 2.5L. 01/11/2025 1 taza concentrado. Destete 14/11/2025, 2 tazas concentrado.' },
+        { name: 'MacFly', id: '', breed: 'Holstein Red', birth: '2025-09-23', father: 'Desconocido', mother: 'Martina', cat: 'Vendida', status: 'Retirado', reason: 'Venta para crianza' },
+        { name: 'Chilindrina', id: '2143', breed: 'Holstein', birth: '2023-12-18', father: 'BUTLER 7HO12195', mother: '1881', cat: 'Próxima parto', status: 'Activo' },
+        { name: 'Miel (2159)', id: '2159', breed: 'Montbeliarde/Holstein', birth: '2024-03-10', father: 'Ranger-Red 7HO12344', mother: '1690', cat: 'Próxima parto', status: 'Activo' },
+        { name: 'Regalo', id: '', breed: 'Holstein', birth: '2026-02-10', father: 'FOX 0200H010911', mother: '2092', cat: 'Ternera', status: 'Activo' },
     ];
 
     try {
@@ -1505,18 +1534,20 @@ async function seedInitialHerd() {
         const activeNames = [];
 
         initialHerd.forEach(a => {
-            const ref = db.collection('hato_detalle').doc(a.name);
+            const ref = db.collection('hato_detalle').doc(getAnimalDocId(a.name));
             const data = {
-                idAnimal: a.id,
+                idAnimal: a.id || '',
                 nombre: a.name,
-                raza: a.breed,
+                raza: a.breed || '',
                 fechaNacimiento: a.birth || '',
-                padre: a.father,
-                madre: a.mother,
+                padre: a.father || '',
+                madre: a.mother || '',
+                registro: a.register || '',
                 categoria: a.cat,
                 status: a.status || 'Activo',
                 motivoRetiro: a.reason || '',
                 fechaRetiro: a.dateRet || '',
+                notas: a.notes || '',
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
             batch.set(ref, data, { merge: true });
@@ -1525,13 +1556,13 @@ async function seedInitialHerd() {
 
         await batch.commit();
 
-        // Update Global Config
-        const newAnimalList = [...new Set([...ANIMALES, ...activeNames])];
-        await db.collection('config').doc('hato').set({ animales: newAnimalList }, { merge: true });
+        // Update Global Config — replace with the complete active names list
+        await db.collection('config').doc('hato').set({ animales: activeNames }, { merge: false });
 
-        ANIMALES = newAnimalList;
+        ANIMALES = activeNames;
         showToast('Hato inicial cargado con éxito 🚀', 'success');
-        loadHerdInventory();
+        updateSyncProgress(95, 'Refrescando inventario...');
+        await loadHerdInventory();
     } catch (e) {
         console.error('Error seeding herd:', e);
         showToast('Error en la carga inicial', 'error');
@@ -1566,8 +1597,10 @@ async function saveNewAnimal() {
         }
 
         // 2. Save metadata
-        await db.collection('hato_detalle').doc(name).set({
+        const docId = getAnimalDocId(name);
+        await db.collection('hato_detalle').doc(docId).set({
             idAnimal: id,
+            nombre: name,
             categoria: category,
             raza: breed,
             fechaNacimiento: birth,
@@ -1575,6 +1608,7 @@ async function saveNewAnimal() {
             madre: mother,
             registro: register,
             status: 'Activo',
+            notas: '',
             addedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
@@ -1603,10 +1637,11 @@ async function removeAnimal(name) {
         await db.collection('config').doc('hato').set({ animales: ANIMALES });
 
         // 2. Mark in metadata as inactive
-        await db.collection('hato_detalle').doc(name).set({
+        const docId = getAnimalDocId(name);
+        await db.collection('hato_detalle').doc(docId).set({
             status: 'Retirado',
             motivoRetiro: motivo,
-            fechaRetiro: firebase.firestore.FieldValue.serverTimestamp()
+            fechaRetiro: new Date().toISOString().split('T')[0]
         }, { merge: true });
 
         showToast(`${name} ha sido retirado del hato activo`, 'info');
@@ -1624,12 +1659,13 @@ function openEditAnimalModal(name) {
 
     document.getElementById('edit-animal-id').value = meta.idAnimal || '';
     document.getElementById('edit-animal-name').value = name;
-    document.getElementById('edit-animal-category').value = meta.categoria || 'Vaca';
+    document.getElementById('edit-animal-category').value = meta.categoria || 'Vaca (Producción)';
     document.getElementById('edit-animal-breed').value = meta.raza || '';
     document.getElementById('edit-animal-birth').value = meta.fechaNacimiento || '';
     document.getElementById('edit-animal-father').value = meta.padre || '';
     document.getElementById('edit-animal-mother').value = meta.madre || '';
     document.getElementById('edit-animal-register').value = meta.registro || '';
+    document.getElementById('edit-animal-notes').value = meta.notas || '';
 
     document.getElementById('modal-edit-animal').style.display = 'flex';
 }
@@ -1647,6 +1683,7 @@ async function saveAnimalMetadata() {
     const father = document.getElementById('edit-animal-father').value.trim();
     const mother = document.getElementById('edit-animal-mother').value.trim();
     const register = document.getElementById('edit-animal-register').value.trim();
+    const notas = document.getElementById('edit-animal-notes').value.trim();
 
     if (!db) {
         showToast('Modo demo: No se puede guardar metadatos', 'warning');
@@ -1655,7 +1692,8 @@ async function saveAnimalMetadata() {
     }
 
     try {
-        await db.collection('hato_detalle').doc(name).set({
+        const docId = getAnimalDocId(name);
+        await db.collection('hato_detalle').doc(docId).set({
             idAnimal: id,
             categoria: category,
             raza: breed,
@@ -1663,6 +1701,7 @@ async function saveAnimalMetadata() {
             padre: father,
             madre: mother,
             registro: register,
+            notas: notas,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
 
@@ -1682,32 +1721,33 @@ function exportHerdInventoryExcel() {
     }
 
     try {
-        const headers = ['ID Animal', 'Nombre', 'Raza', 'Fecha Nacimiento', 'Padre', 'Madre', 'Registro', 'Estado Actual', 'Baja/Causa'];
-        const rows = currentHerdCenso.map(item => [
-            item.idAnimal,
-            item.nombre,
-            item.raza.replace(',', ';'),
-            item.fechaNac,
-            item.padres.split('/')[0] || '', // Padre
-            item.padres.split('/')[1] || '', // Madre
-            item.registro.replace(',', ';'),
-            item.estado.replace(',', ';'),
-            item.baja.replace(',', ';')
-        ]);
-
-        // Create CSV content (UTF-8 with BOM for Excel compatibility)
-        let csvContent = "\uFEFF"; // UTF-8 BOM
-        csvContent += headers.join(',') + '\n';
-        rows.forEach(row => {
-            csvContent += row.join(',') + '\n';
+        const headers = ['ID Animal', 'Nombre', 'Raza', 'Fecha Nacimiento', 'Padre', 'Madre', 'Registro', 'Estado Actual', 'Baja/Causa', 'Notas'];
+        const rows = currentHerdCenso.map(item => {
+            const meta = herdInventoryMeta[item.nombre] || {};
+            const esc = v => `"${(v || '').toString().replace(/"/g, '""')}"`;
+            return [
+                esc(item.idAnimal),
+                esc(item.nombre),
+                esc(item.raza),
+                esc(item.fechaNac),
+                esc(item.padre),
+                esc(item.madre),
+                esc(item.registro),
+                esc(item.estado),
+                esc(item.baja),
+                esc(meta.notas || '')
+            ];
         });
 
-        // Download Browser Trick
+        let csvContent = "\uFEFF"; // UTF-8 BOM for Excel
+        csvContent += headers.map(h => `"${h}"`).join(',') + '\n';
+        rows.forEach(row => { csvContent += row.join(',') + '\n'; });
+
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.setAttribute("href", url);
-        link.setAttribute("download", `Censo_Hato_PaMora_${new Date().toISOString().split('T')[0]}.csv`);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `Censo_Hato_PaMora_${new Date().toISOString().split('T')[0]}.csv`);
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();

@@ -902,7 +902,8 @@
                     <th>Registro</th>
                     <th>Estado Actual</th>
                     <th>Baja (Causa)</th>
-                    <th style="width: 50px;">Acciones</th>
+                    <th>Notas</th>
+                    <th style="width: 80px;">Acciones</th>
                   </tr>
                 </thead>
                 <tbody id="hato-inventory-tbody" style="font-size: 0.9rem;">
@@ -1125,9 +1126,11 @@
           <select id="add-animal-category" class="form-select">
             <option value="Vaca (Producción)">Vaca (Producción)</option>
             <option value="Vaca (Secando)">Vaca (Secando)</option>
+            <option value="Próxima parto">Próxima parto</option>
             <option value="Novilla">Novilla</option>
             <option value="Ternera">Ternera</option>
             <option value="Ternero">Ternero</option>
+            <option value="Vendida">Vendida / Baja</option>
           </select>
         </div>
         <div class="col-md-6 mb-2">
@@ -1186,8 +1189,12 @@
     <div class="modal-pamora-content" style="max-width: 500px;">
       <h3 class="mb-2">📊 Importar Hato desde Excel</h3>
       <p style="font-size: 0.8rem; color: var(--text-muted);" class="mb-3">
-        Copia tus columnas de Excel (Nombre, Raza, Categoría) y pégalas abajo.<br>
-        *La categoría debe ser: Vaca, Novilla o Ternera.
+        Copia las columnas de tu tabla Excel y pégalas abajo.<br>
+        Formato esperado (tab-separado, como al copiar desde Excel):<br>
+        <code
+          style="font-size:0.75rem; color:#a78bfa;">ID | Nombre | Raza | Fecha Nac. | Padre | Madre | Registro | <strong>Estado</strong> | Fecha Baja | Causa Baja | Notas</code><br>
+        <span style="color:#4ade80;">Estado válidos:</span> Lactando, Secando, Próxima parto, Ternera, Ternero, Novilla,
+        Vendida, Baja.
       </p>
 
       <div class="mb-3">
@@ -1226,9 +1233,11 @@
           <select id="edit-animal-category" class="form-select">
             <option value="Vaca (Producción)">Vaca (Producción)</option>
             <option value="Vaca (Secando)">Vaca (Secando)</option>
+            <option value="Próxima parto">Próxima parto</option>
             <option value="Novilla">Novilla</option>
             <option value="Ternera">Ternera</option>
             <option value="Ternero">Ternero</option>
+            <option value="Vendida">Vendida / Baja</option>
           </select>
         </div>
         <div class="col-md-6 mb-2">
@@ -1253,9 +1262,16 @@
         </div>
       </div>
 
-      <div class="mb-3">
-        <label class="form-label">Registro / Notas</label>
+      <div class="mb-2">
+        <label class="form-label">Registro
+        </label>
         <input type="text" id="edit-animal-register" class="form-control">
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">📋 Notas / Historial</label>
+        <textarea id="edit-animal-notes" class="form-control" rows="3"
+          placeholder="Notas del animal, historial de destete, etc." style="font-size:0.85rem;"></textarea>
       </div>
 
       <div class="d-flex gap-2 justify-content-end">
