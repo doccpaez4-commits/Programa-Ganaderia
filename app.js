@@ -290,8 +290,11 @@ function switchTab(tabId) {
         }
     }
 
-    // Reset dirty flag when switching if user confirmed or no changes
+    // Reset dirty flag
     setDirty(false);
+
+    // 1. Close all modals immediately (requested by user)
+    closeAllModals();
 
     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
     const tabBtn = document.querySelector(`[data-tab="${tabId}"]`);
@@ -304,21 +307,15 @@ function switchTab(tabId) {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    // Toggle specific tool visibility (Import Excel only in Hato)
-    const hatoTools = document.querySelector('#panel-mi-hato .section-header .d-flex.gap-2');
-    if (hatoTools) {
-        hatoTools.style.display = (tabId === 'mi-hato') ? 'flex' : 'none';
-    }
-
     // Load data for specific tabs
     if (tabId === 'inicio') loadDashboardStats();
     if (tabId === 'rentabilidad') loadRentabilidad();
     if (tabId === 'historial') loadHistorial();
     if (tabId === 'explorador') loadEventExplorer();
-    if (tabId === 'config') renderConfigAnimales();
-    if (tabId === 'gestacion') loadDashboardStats();
-    if (tabId === 'costos') updateCostoPorLitro();
     if (tabId === 'mi-hato') loadHerdInventory();
+    if (tabId === 'gestacion') loadDashboardStats();
+    if (tabId === 'vacunaciones') loadVacunaciones();
+    if (tabId === 'config') renderConfigAnimales();
 }
 
 
@@ -585,6 +582,7 @@ function switchEventoType(tipo) {
     document.getElementById('celo-fields').classList.toggle('hidden', tipo !== 'celo');
     document.getElementById('inseminacion-fields').classList.toggle('hidden', tipo !== 'inseminacion');
     document.getElementById('nacimiento-fields').classList.toggle('hidden', tipo !== 'nacimiento');
+    document.getElementById('vacunacion-fields').classList.toggle('hidden', tipo !== 'vacunacion');
     document.getElementById('otro-fields').classList.toggle('hidden', tipo !== 'otro');
 }
 
@@ -593,6 +591,11 @@ function switchEventoType(tipo) {
 async function handleEvento(e) {
     e.preventDefault();
     const tipo = document.getElementById('evento-tipo').value;
+
+    if (tipo === 'vacunacion') {
+        return handleVacunacion();
+    }
+
     const fecha = document.getElementById('evento-fecha').value;
     let payload = { tipo, fecha, token: API_TOKEN };
 
@@ -612,6 +615,8 @@ async function handleEvento(e) {
         payload.tecnico = document.getElementById('insem-tecnico').value;
         payload.observaciones = document.getElementById('insem-observaciones').value;
         payload.estado = document.getElementById('insem-estado').value;
+        payload.fechaDiagnostico = document.getElementById('insem-fecha-diag').value;
+        payload.fechaEstimadaParto = document.getElementById('insem-fecha-parto').value;
 
         if (!payload.animal) {
             showToast('Selecciona el animal', 'error');
@@ -763,7 +768,20 @@ async function fetchFromSheets(accion, params = {}) {
             const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout Fetch Sheets')), 5000));
             const snapshot = await Promise.race([fetchPromise, timeoutPromise]);
             const filas = [];
-            snapshot.forEach(doc => filas.push(doc.data()));
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                // If it's the events collection, filter by the requested event type
+                if (coll === 'eventos') {
+                    const tipoMap = {
+                        'inseminaciones': 'Inseminación',
+                        'nacimientos': 'Nacimiento',
+                        'celos': 'Celo'
+                    };
+                    if (data.tipo === tipoMap[accion]) filas.push(data);
+                } else {
+                    filas.push(data);
+                }
+            });
             return { filas };
         } catch (e) {
             console.error('Firebase fetch error', e);
@@ -884,11 +902,20 @@ function loadGestacion(insem) {
 
     const preneces = Object.values(latestInsem).map(f => {
         const fInsem = new Date(f.fecha);
-        const fParto = new Date(fInsem.getTime() + (283 * 24 * 60 * 60 * 1000));
+        let fParto;
+        if (f.fechaEstimadaParto) {
+            fParto = new Date(f.fechaEstimadaParto.replace(/\//g, '-'));
+        } else {
+            fParto = new Date(fInsem.getTime() + (283 * 24 * 60 * 60 * 1000));
+        }
         const diffTime = fParto - hoy;
         const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         return { ...f, fParto, diasRestantes };
-    }).sort((a, b) => a.diasRestantes - b.diasRestantes); // Order by closest to calving
+    }).sort((a, b) => {
+        if (isNaN(a.fParto)) return 1;
+        if (isNaN(b.fParto)) return -1;
+        return a.diasRestantes - b.diasRestantes;
+    }); // Order by closest to calving
 
     preneces.forEach(p => {
         // Hide very old records (more than 60 days post calving)
@@ -1167,8 +1194,11 @@ async function loadHerdInventory() {
         return;
     }
 
+    // Auto-cleanup header rows if they exist
+    cleanupHeaderRows();
+
     const tbody = document.getElementById('hato-inventory-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px;">🔍 Analizando hato y eventos...</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="11" class="text-center" style="padding:20px;">🔍 Analizando hato y eventos...</td></tr>';
 
     try {
         updateSyncProgress(75, 'Obteniendo metadatos del hato...');
@@ -2236,14 +2266,14 @@ async function loadHistorial() {
             insemTbody.innerHTML = insem.filas.map(f => {
                 const badgeClass = f.estado === 'Preñada' ? 'badge-success' :
                     f.estado === 'No Preñada' ? 'badge-danger' : 'badge-warning';
-                return `< tr >
+                return `<tr>
           <td>${formatDate(f.fecha)}</td>
-          <td>${f.animal}</td>
+          <td><strong>🐮 ${f.animal}</strong></td>
           <td>${f.toro}</td>
           <td>${f.tecnico}</td>
           <td>${f.observaciones || '—'}</td>
           <td><span class="badge-pamora ${badgeClass}">${f.estado}</span></td>
-        </tr > `;
+        </tr>`;
             }).join('');
         }
     }
@@ -2597,4 +2627,215 @@ async function guardarParametrosRentabilidad() {
             btn.innerHTML = originalHTML;
         }
     }
+}
+
+// ─── CERRAR TODOS LOS MODALES ────────────────────────────────────────────────
+
+function closeAllModals() {
+    ['modal-add-animal', 'modal-edit-animal', 'modal-confirm-delete', 'modal-import-excel'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+}
+
+// ─── FILTRO MI HATO ──────────────────────────────────────────────────────────
+
+let currentHerdFilter = 'all';
+
+function filterHerdInventory(filter) {
+    currentHerdFilter = filter;
+
+    // Highlight active filter card
+    ['filter-all', 'filter-produccion', 'filter-secas'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.style.boxShadow = ''; el.style.border = ''; }
+    });
+    const activeId = filter === 'all' ? 'filter-all' : filter === 'lactando' ? 'filter-produccion' : 'filter-secas';
+    const activeEl = document.getElementById(activeId);
+    if (activeEl) { activeEl.style.boxShadow = '0 0 0 2px #4ade80'; activeEl.style.border = '1px solid #4ade80'; }
+
+    if (!currentHerdCenso) return;
+    let filtered;
+    if (filter === 'all') filtered = currentHerdCenso;
+    else if (filter === 'lactando') filtered = currentHerdCenso.filter(a => a.estado.includes('LACTANDO'));
+    else if (filter === 'secas') filtered = currentHerdCenso.filter(a => !a.estado.includes('LACTANDO') && !a.estado.includes('VENDIDA') && !a.estado.includes('BAJA'));
+    else filtered = currentHerdCenso;
+
+    const tbody = document.getElementById('hato-inventory-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = filtered.map(item => {
+        const n = herdInventoryMeta[item.nombre]?.notas || '';
+        const notasHtml = n ? `<span title="${n.replace(/"/g, '&quot;')}" style="cursor:help; color:#60a5fa;">📝</span>` : '';
+        const escapedName = item.nombre.replace(/'/g, "\\'");
+        return `<tr>
+            <td style="font-family:monospace; font-weight:700;">${item.idAnimal || '—'}</td>
+            <td><strong>${item.nombre}</strong></td>
+            <td>${item.raza}</td>
+            <td style="font-size:0.8rem;">${item.fechaNac}</td>
+            <td style="font-size:0.8rem;">${item.padre}</td>
+            <td style="font-size:0.8rem;">${item.madre}</td>
+            <td style="font-size:0.8rem; color:var(--text-muted);">${item.registro}</td>
+            <td><span style="color:${item.color}; font-weight:600;">${item.estado}</span></td>
+            <td style="font-size:0.75rem; color:#ef4444;">${item.baja}</td>
+            <td>${notasHtml}</td>
+            <td><div class="d-flex gap-1">
+                <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditAnimalModal('${escapedName}')" title="Editar">📝</button>
+                <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem; background:#ef4444;" onclick="openRemoveAnimalModal('${escapedName}')" title="Retirar">📤</button>
+            </div></td>
+        </tr>`;
+    }).join('');
+}
+
+// ─── VACUNACIONES ─────────────────────────────────────────────────────────────
+
+async function loadVacunaciones() {
+    const tbody = document.getElementById('vacunaciones-tbody');
+    if (!tbody) return;
+    if (!db) { tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding:40px; color:var(--text-muted);">Solo disponible con Firebase conectado</td></tr>'; return; }
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding:30px;">Cargando...</td></tr>';
+
+    try {
+        const snap = await db.collection('vacunaciones').orderBy('fecha', 'desc').get();
+        if (snap.empty) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding:40px; color:var(--text-muted);">Sin registros. Usa "Cargar Historial" o registra en la pestaña Eventos.</td></tr>';
+            return;
+        }
+        const rows = [];
+        snap.forEach(doc => {
+            const d = doc.data();
+            const fDisplay = d.fecha ? d.fecha.replace(/-/g, '/') : '—';
+            rows.push(`<tr>
+                <td>${fDisplay}</td>
+                <td><strong>${d.animal || 'Todo hato'}</strong></td>
+                <td><span style="font-size:0.8rem; padding:2px 6px; border-radius:4px; background:rgba(139,92,246,0.2); color:#a78bfa;">${d.tipo || 'Vacuna'}</span></td>
+                <td>${d.tratamiento || ''}</td>
+                <td style="font-size:0.85rem;">${d.dosis || '—'}</td>
+                <td style="font-size:0.85rem;">${d.administrador || '—'}</td>
+                <td style="font-size:0.8rem; color:var(--text-muted);">${d.observaciones || ''}</td>
+                <td><button class="btn-pamora" style="padding:3px 7px; font-size:0.7rem; background:#ef4444;" onclick="requestQuickDelete('vacunaciones','${doc.id}','${(d.tratamiento || '').replace(/'/g, "\\'")}')">🗑</button></td>
+            </tr>`);
+        });
+        tbody.innerHTML = rows.join('');
+    } catch (e) {
+        console.error('Error loading vacunaciones:', e);
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="color:#ef4444;">Error: ${e.message}</td></tr>`;
+    }
+}
+
+async function handleVacunacion() {
+    if (!db) { showToast('Modo demo: No disponible', 'warning'); return; }
+    const fecha = document.getElementById('evento-fecha').value;
+    const animal = document.getElementById('vacu-animal').value;
+    const tipo = document.getElementById('vacu-tipo').value;
+    const tratamiento = document.getElementById('vacu-producto').value.trim();
+    const dosis = document.getElementById('vacu-dosis').value.trim();
+    const lote = document.getElementById('vacu-lote').value.trim();
+    const administrador = document.getElementById('vacu-administrador').value.trim();
+    const observaciones = document.getElementById('vacu-observaciones').value.trim();
+
+    if (!fecha || !tratamiento) { showToast('Completa fecha y nombre del producto', 'warning'); return; }
+
+    try {
+        await db.collection('vacunaciones').add({
+            fecha, animal, tipo, tratamiento, dosis, lote, administrador, observaciones,
+            addedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        showToast(`${tipo} registrada ✅`, 'success');
+        ['vacu-producto', 'vacu-dosis', 'vacu-lote', 'vacu-administrador'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        document.getElementById('vacu-observaciones').value = '';
+    } catch (e) { showToast('Error al guardar: ' + e.message, 'error'); }
+}
+
+async function seedVacunaciones() {
+    if (!db) { showToast('Modo demo', 'warning'); return; }
+    if (!confirm('¿Cargar el historial de vacunaciones y purgas (7 registros)?')) return;
+
+    const data = [
+        { fecha: '2025-05-21', animal: 'Conny', tipo: 'Vacuna', tratamiento: 'Vacuna Bruselosis/Aftosa', dosis: '', lote: '', administrador: 'Umata', observaciones: '' },
+        { fecha: '2025-05-21', animal: 'Martina', tipo: 'Vacuna', tratamiento: 'Vacuna Aftosa', dosis: '', lote: '', administrador: 'Umata', observaciones: '' },
+        { fecha: '2025-05-20', animal: 'Conny', tipo: 'Purga', tratamiento: 'Purga Boves', dosis: '', lote: '', administrador: 'Umata', observaciones: '' },
+        { fecha: '2025-05-20', animal: 'Martina', tipo: 'Purga', tratamiento: 'Purga Boves', dosis: '', lote: '', administrador: 'Umata', observaciones: '' },
+        { fecha: '2025-06-16', animal: 'Nube', tipo: 'Vacuna', tratamiento: 'Aftosa', dosis: '', lote: '', administrador: 'Umata', observaciones: '' },
+        { fecha: '2025-06-16', animal: 'Dulce', tipo: 'Vacuna', tratamiento: 'Aftosa', dosis: '', lote: '', administrador: 'Umata', observaciones: '' },
+        { fecha: '2025-06-16', animal: 'Mapi', tipo: 'Vacuna', tratamiento: 'Aftosa', dosis: '', lote: '', administrador: 'Umata', observaciones: '' },
+    ];
+
+    try {
+        showToast('Cargando historial sanitario...', 'info');
+        const batch = db.batch();
+        data.forEach(d => batch.set(db.collection('vacunaciones').doc(), { ...d, addedAt: firebase.firestore.FieldValue.serverTimestamp() }));
+        await batch.commit();
+        showToast(`✅ ${data.length} registros sanitarios cargados`, 'success');
+        loadVacunaciones();
+    } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// ─── SEMILLA INSEMINACIONES HISTÓRICAS ────────────────────────────────────────
+
+async function seedInseminaciones() {
+    if (!db) { showToast('Modo demo', 'warning'); return; }
+    if (!confirm('¿Cargar el historial completo de inseminaciones (22 registros)?')) return;
+
+    const data = [
+        { fecha: '2024-08-06', animal: 'Nube', toro: 'Quick Work', tecnico: 'Sin información', estado: 'Preñada', fechaEstimadaParto: '2025-05-15', observaciones: '' },
+        { fecha: '2024-08-30', animal: 'Mapi', toro: 'CINCH Angus Rojo', tecnico: 'Sin información', estado: 'Preñada', fechaEstimadaParto: '2025-06-08', observaciones: '' },
+        { fecha: '2024-09-18', animal: 'Sol', toro: 'River Red 17HO16781', tecnico: 'Sin información', estado: 'Preñada', fechaEstimadaParto: '2025-06-27', observaciones: '' },
+        { fecha: '2024-11-04', animal: 'Moli', toro: 'Holstein Rojo', tecnico: 'Orlando', estado: 'Preñada', fechaEstimadaParto: '2025-08-04', observaciones: '' },
+        { fecha: '', animal: 'Martina', toro: '', tecnico: '', estado: 'Preñada', fechaEstimadaParto: '', observaciones: 'Registro sin fecha' },
+        { fecha: '2025-06-03', animal: 'Morocha', toro: 'Altariled up-red', tecnico: 'Orlando', estado: 'No Preñada', fechaEstimadaParto: '2026-03-03', observaciones: '' },
+        { fecha: '2025-06-15', animal: 'Miel', toro: 'Galore Red Holstein rojo', tecnico: 'Orlando', estado: 'No Preñada', fechaEstimadaParto: '2026-03-15', observaciones: '' },
+        { fecha: '2025-09-08', animal: 'Dulce', toro: '', tecnico: 'Santiago', estado: 'No Preñada', fechaEstimadaParto: '2026-06-08', observaciones: 'Entra en calor el 29 de septiembre' },
+        { fecha: '2025-09-08', animal: 'Yohana', toro: '', tecnico: 'Santiago', estado: 'Preñada', fechaEstimadaParto: '2026-06-18', observaciones: '' },
+        { fecha: '2025-09-08', animal: 'Mapi', toro: '', tecnico: 'Santiago', estado: 'No Preñada', fechaEstimadaParto: '2026-06-18', observaciones: '' },
+        { fecha: '2025-09-08', animal: 'Sol', toro: '', tecnico: 'Santiago', estado: 'No Preñada', fechaEstimadaParto: '2026-06-18', observaciones: 'Se aplica hormona para entrar en calor el 26/11/2025' },
+        { fecha: '2025-09-08', animal: 'Nube', toro: '', tecnico: 'Santiago', estado: 'No Preñada', fechaEstimadaParto: '2026-06-18', observaciones: 'Se aplica hormona para entrar en calor el 26/11/2025' },
+        { fecha: '2025-09-30', animal: 'Dulce', toro: 'Toro Girolando (Hector Julio)', tecnico: '', estado: 'No Preñada', fechaEstimadaParto: '2026-07-10', observaciones: 'Tuvo un calor el 22 de Octubre' },
+        { fecha: '2025-10-17', animal: 'Moli', toro: 'Altariled up red', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-07-27', observaciones: '' },
+        { fecha: '2025-11-04', animal: 'Mandarina', toro: 'Toro don martines', tecnico: '', estado: 'Pendiente', fechaEstimadaParto: '2026-08-14', observaciones: 'Vendida' },
+        { fecha: '2025-11-12', animal: 'Mapi', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-08-22', observaciones: '' },
+        { fecha: '2025-11-16', animal: 'Dulce', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-08-26', observaciones: '' },
+        { fecha: '2025-11-30', animal: 'Martina', toro: 'Inseminación', tecnico: 'Orlando', estado: 'No Preñada', fechaEstimadaParto: '2026-09-09', observaciones: 'Vendida' },
+        { fecha: '2026-01-07', animal: 'Martina', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-10-17', observaciones: '' },
+        { fecha: '2026-02-04', animal: 'Nube', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-11-14', observaciones: 'Se aplica Gestar inyectado' },
+        { fecha: '2026-02-16', animal: 'Sol', toro: 'Inseminación', tecnico: 'Orlando', estado: 'Pendiente', fechaEstimadaParto: '2026-11-26', observaciones: '' },
+        { fecha: '2025-09-15', animal: 'Morocha', toro: 'Toro vecina', tecnico: '', estado: 'Preñada', fechaEstimadaParto: '', observaciones: '' },
+    ];
+
+    try {
+        showToast('Cargando inseminaciones históricas...', 'info');
+        const batch = db.batch();
+        data.forEach(d => {
+            batch.set(db.collection('eventos').doc(), {
+                tipo: 'Inseminación',
+                fecha: d.fecha, animal: d.animal, toro: d.toro,
+                tecnico: d.tecnico, estado: d.estado,
+                fechaEstimadaParto: d.fechaEstimadaParto,
+                observaciones: d.observaciones,
+                addedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        });
+        await batch.commit();
+        showToast(`✅ 22 inseminaciones cargadas en Firebase`, 'success');
+        loadHistorial();
+        if (typeof loadGestacionPanel === 'function') loadGestacionPanel();
+    } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// ─── LIMPIEZA FILAS ENCABEZADO ────────────────────────────────────────────────
+
+async function cleanupHeaderRows() {
+    if (!db) return;
+    const HEADER_IDS = [
+        'ID_Animal', 'Nombre', 'Raza', 'Fecha_Nacimiento', 'Padre', 'Madre', 'Registro', 'Estado_Actual',
+        'ID Animal', 'Fecha Nacimiento', 'VENDIDA/BAJA (no aplica)', '2 /3/2026 (no aplica)', '📝'
+    ];
+    try {
+        const batch = db.batch();
+        HEADER_IDS.forEach(h => {
+            batch.delete(db.collection('hato_detalle').doc(h));
+            // Also try with spaces replaced by underscores for good measure if needed
+            if (h.includes(' ')) batch.delete(db.collection('hato_detalle').doc(h.replace(/ /g, '_')));
+        });
+        await batch.commit();
+    } catch (e) { /* silent */ }
 }

@@ -113,7 +113,7 @@
 
       <!-- Navigation -->
       <nav class="nav-tabs-pamora">
-        <button class="nav-tab active" data-tab="inicio" id="tab-inicio">
+        <button class="nav-tab" data-tab="inicio" id="tab-inicio">
           <span>🏠</span> Inicio
         </button>
         <button class="nav-tab" data-tab="ordeno" id="tab-ordeno">
@@ -128,14 +128,17 @@
         <button class="nav-tab" data-tab="rentabilidad" id="tab-rentabilidad">
           <span>📊</span> Rentabilidad
         </button>
-        <button class="nav-tab" data-tab="mi-hato" id="tab-mi-hato" onclick="loadHerdInventory()">
+        <button class="nav-tab active" data-tab="mi-hato" id="tab-mi-hato" onclick="loadHerdInventory()">
           <span>🐄</span> Mi Hato
         </button>
-        <button class="nav-tab" data-tab="gestacion" id="tab-gestacion" style="display: none;">
+        <button class="nav-tab" data-tab="gestacion" id="tab-gestacion">
           <span>🐄</span> Gestación
         </button>
         <button class="nav-tab" data-tab="historial" id="tab-historial">
           <span>📜</span> Historial
+        </button>
+        <button class="nav-tab" data-tab="vacunaciones" id="tab-vacunaciones">
+          <span>💉</span> Vacunas
         </button>
         <button class="nav-tab" data-tab="explorador" id="tab-explorador">
           <span>🔍</span> Explorador
@@ -157,7 +160,7 @@
       <main class="app-content">
 
         <!-- ═══ PANEL: INICIO (Dashboard) ═══ -->
-        <div id="panel-inicio" class="tab-panel active">
+        <div id="panel-inicio" class="tab-panel">
           <div class="section-header">
             <h1 class="section-title">🏠 Panel de Control</h1>
             <p class="section-subtitle">Selecciona una acción para comenzar</p>
@@ -288,10 +291,7 @@
           </div>
 
           <div class="card-pamora form-card">
-            <!-- Quick cow management shortcut -->
-            <div class="manage-cows-shortcut" onclick="switchTab('config')">
-              <span>🐄</span> Gestionar Hato (Agregar/Quitar Vacas)
-            </div>
+
 
             <form id="ordeno-form" onsubmit="handleOrdeno(event)">
 
@@ -362,6 +362,7 @@
                     <option value="celo">🔥 Celo</option>
                     <option value="inseminacion">💉 Inseminación</option>
                     <option value="nacimiento">🐣 Nacimiento</option>
+                    <option value="vacunacion">🩺 Vacunación / Tratamiento</option>
                     <option value="otro">📦 Otro</option>
                   </select>
                 </div>
@@ -421,12 +422,21 @@
                     <input type="text" id="insem-tecnico" class="form-control" placeholder="Nombre">
                   </div>
                   <div class="col-6">
-                    <label class="form-label">Estado</label>
+                    <label class="form-label">Resultado</label>
                     <select id="insem-estado" class="form-select">
                       <option value="Pendiente">⏳ Pendiente</option>
                       <option value="Preñada">✅ Preñada</option>
                       <option value="No Preñada">❌ No Preñada</option>
                     </select>
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label">Fecha Diagnóstico</label>
+                    <input type="text" id="insem-fecha-diag" class="form-control"
+                      placeholder="Ej: 15/05/2025 o Sin info">
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label">Fecha Estimada Parto</label>
+                    <input type="text" id="insem-fecha-parto" class="form-control" placeholder="Ej: 15/05/2025">
                   </div>
                   <div class="col-12">
                     <label class="form-label">Observaciones</label>
@@ -463,6 +473,50 @@
                   <div class="col-12">
                     <label class="form-label">Observaciones</label>
                     <textarea id="nac-observaciones" class="form-control" rows="2" placeholder="Notas..."></textarea>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Vacunación / Tratamiento Fields -->
+              <div id="vacunacion-fields" class="form-section hidden">
+                <div class="form-section-title">🩺 Vacunación / Tratamiento</div>
+                <div class="row g-3">
+                  <div class="col-6">
+                    <label class="form-label">Animal (o dejar en blanco para todo el hato)</label>
+                    <select id="vacu-animal" class="form-select">
+                      <option value="">— Todo el Hato —</option>
+                    </select>
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label">Tipo</label>
+                    <select id="vacu-tipo" class="form-select">
+                      <option value="Vacuna">💉 Vacuna</option>
+                      <option value="Purga">🌿 Purga / Desparasitación</option>
+                      <option value="Tratamiento">🏥 Tratamiento</option>
+                      <option value="Vitamina">💊 Vitamina / Suplemento</option>
+                    </select>
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label">Vacuna / Producto</label>
+                    <input type="text" id="vacu-producto" class="form-control"
+                      placeholder="Ej: Aftosa, Brucelosis, Boves...">
+                  </div>
+                  <div class="col-4">
+                    <label class="form-label">Dosis</label>
+                    <input type="text" id="vacu-dosis" class="form-control" placeholder="Ej: 2ml">
+                  </div>
+                  <div class="col-4">
+                    <label class="form-label">Lote</label>
+                    <input type="text" id="vacu-lote" class="form-control" placeholder="N° Lote">
+                  </div>
+                  <div class="col-4">
+                    <label class="form-label">Administrador</label>
+                    <input type="text" id="vacu-administrador" class="form-control" placeholder="Umata, Vet...">
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label">Notas</label>
+                    <textarea id="vacu-observaciones" class="form-control" rows="2"
+                      placeholder="Observaciones..."></textarea>
                   </div>
                 </div>
               </div>
@@ -542,14 +596,6 @@
                   <label class="form-label">Monto ($)</label>
                   <input type="number" id="gasto-monto" class="form-control" min="0" step="100" placeholder="0"
                     required>
-                </div>
-                <div class="col-6">
-                  <div class="stat-card mt-4" style="padding: 12px;">
-                    <div style="font-size: 0.6875rem; color: var(--text-muted); text-transform: uppercase;">Costo
-                      concentrado/litro</div>
-                    <div style="font-size: 1.25rem; font-weight: 700; color: var(--text-accent);">$<span
-                        id="costo-por-litro">0</span></div>
-                  </div>
                 </div>
               </div>
 
@@ -840,7 +886,7 @@
 
 
         <!-- ═══ PANEL: MI HATO (CENSO) ═══ -->
-        <div id="panel-mi-hato" class="tab-panel">
+        <div id="panel-mi-hato" class="tab-panel active">
           <div class="section-header d-flex justify-content-between align-items-center mb-4">
             <div>
               <h1 class="section-title">🐄 Mi Hato (Inventario)</h1>
@@ -851,15 +897,9 @@
                 onclick="openAddAnimalModal()">
                 ➕ Nuevo Animal
               </button>
-              <button class="btn-pamora btn-secondary" style="background: #ef4444;" onclick="seedInitialHerd()">
-                🚀 Carga Inicial
-              </button>
               <button class="btn-pamora btn-secondary" style="background: #10b981;"
                 onclick="exportHerdInventoryExcel()">
                 📥 Descargar Censo
-              </button>
-              <button class="btn-pamora btn-secondary" onclick="openImportExcelModal()">
-                📊 Importar Excel
               </button>
               <button class="btn-pamora" onclick="loadHerdInventory()">
                 🔄 Actualizar Censo
@@ -867,22 +907,25 @@
             </div>
           </div>
 
-          <div class="row mb-4">
+          <div class="row mb-4" id="hato-filter-row">
             <div class="col-md-4">
-              <div class="card-pamora text-center">
+              <div class="card-pamora text-center hato-filter-card active-filter" id="filter-all"
+                onclick="filterHerdInventory('all')" style="cursor:pointer; transition: all 0.2s;">
                 <div style="font-size: 0.8rem; color: var(--text-muted);">Total Hato</div>
                 <div style="font-size: 1.5rem; font-weight: 700;" id="censo-total">0</div>
               </div>
             </div>
             <div class="col-md-4">
-              <div class="card-pamora text-center">
-                <div style="font-size: 0.8rem; color: var(--text-muted);">En Producción</div>
+              <div class="card-pamora text-center hato-filter-card" id="filter-produccion"
+                onclick="filterHerdInventory('lactando')" style="cursor:pointer; transition: all 0.2s;">
+                <div style="font-size: 0.8rem; color: var(--text-muted);">En Producción 🥛</div>
                 <div style="font-size: 1.5rem; font-weight: 700; color: #4ade80;" id="censo-produccion">0</div>
               </div>
             </div>
             <div class="col-md-4">
-              <div class="card-pamora text-center">
-                <div style="font-size: 0.8rem; color: var(--text-muted);">Secas / Novillas</div>
+              <div class="card-pamora text-center hato-filter-card" id="filter-secas"
+                onclick="filterHerdInventory('secas')" style="cursor:pointer; transition: all 0.2s;">
+                <div style="font-size: 0.8rem; color: var(--text-muted);">Secas / Novillas / Terneras</div>
                 <div style="font-size: 1.5rem; font-weight: 700; color: #f59e0b;" id="censo-no-productivo">0</div>
               </div>
             </div>
@@ -908,7 +951,7 @@
                 </thead>
                 <tbody id="hato-inventory-tbody" style="font-size: 0.9rem;">
                   <tr>
-                    <td colspan="9" class="text-center" style="padding: 30px;">Cargando censo dinámico...</td>
+                    <td colspan="11" class="text-center" style="padding: 30px;">Cargando censo dinámico...</td>
                   </tr>
                 </tbody>
               </table>
@@ -916,6 +959,49 @@
           </div>
         </div>
 
+        <!-- ═══ PANEL: VACUNACIONES ═══ -->
+        <div id="panel-vacunaciones" class="tab-panel">
+          <span class="back-link" onclick="switchTab('inicio')">← Volver al inicio</span>
+          <div class="section-header d-flex justify-content-between align-items-center">
+            <div>
+              <h1 class="section-title">💉 Vacunaciones y Tratamientos</h1>
+              <p class="section-subtitle">Historial sanitario del hato — Vacunas, purgas y tratamientos</p>
+            </div>
+            <div class="d-flex gap-2">
+              <button class="btn-pamora" onclick="loadVacunaciones()" style="width:auto; padding:8px 16px;">🔄
+                Actualizar</button>
+              <button class="btn-pamora" onclick="seedVacunaciones()"
+                style="width:auto; padding:8px 16px; background:#8b5cf6;">🌱 Cargar Historial</button>
+            </div>
+          </div>
+
+          <div class="card-pamora mt-3">
+            <div class="table-wrapper">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Animal</th>
+                    <th>Tipo</th>
+                    <th>Vacuna / Producto</th>
+                    <th>Dosis</th>
+                    <th>Administrador</th>
+                    <th>Notas</th>
+                    <th style="width:60px;">⚙️</th>
+                  </tr>
+                </thead>
+                <tbody id="vacunaciones-tbody">
+                  <tr>
+                    <td colspan="8" class="text-center" style="padding:40px; color:var(--text-muted);">Cargando
+                      historial sanitario...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══ PANEL: EXPLORADOR ═══ -->
         <div id="panel-explorador" class="tab-panel">
           <span class="back-link" onclick="switchTab('inicio')">← Volver al inicio</span>
           <div class="section-header">
@@ -1058,9 +1144,13 @@
         </div>
         <!-- ═══ PANEL: GESTACIÓN (Control de Preñez) ═══ -->
         <div id="panel-gestacion" class="tab-panel">
-          <div class="section-header">
-            <h1 class="section-title">🤰 Control de Gestación</h1>
-            <p class="section-subtitle">Monitoreo de preñeces y estimación de partos (283 días)</p>
+          <div class="section-header d-flex justify-content-between align-items-center">
+            <div>
+              <h1 class="section-title">🐮 Control de Gestación</h1>
+              <p class="section-subtitle">Monitoreo de preñeces y estimación de partos (283 días)</p>
+            </div>
+            <button class="btn-pamora" onclick="seedInseminaciones()"
+              style="width:auto; padding:8px 16px; background:#8b5cf6;">🌱 Cargar Historial Insem.</button>
           </div>
 
           <div class="card pamora-card">
