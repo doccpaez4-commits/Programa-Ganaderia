@@ -251,6 +251,28 @@
               </div>
             </div>
           </div>
+
+          <!-- Bodega Widget -->
+          <div class="mt-4">
+            <h2 class="section-title" style="font-size: 1.1rem;">📦 Inventario Bodega (Concentrado)</h2>
+            <div class="card-pamora d-flex align-items-center justify-content-between mt-3 flex-wrap gap-2">
+              <div class="d-flex align-items-center gap-3">
+                <div style="font-size: 2.5rem;">🌾</div>
+                <div>
+                  <div style="font-weight: 700; font-size: 1.1rem;">Stock Actual: <span id="bodega-stock"
+                      style="color: var(--text-accent);">0</span> Bultos</div>
+                  <div style="font-size: 0.85rem; color: var(--text-muted);" id="bodega-dias-restantes">Quedan ~0 días
+                    de alimento</div>
+                </div>
+              </div>
+              <div class="d-flex gap-2 align-items-center">
+                <input type="number" id="bodega-input" class="form-control" style="width: 100px;" placeholder="Bultos"
+                  min="0">
+                <button class="btn-pamora" style="width: auto; padding: 8px 16px;"
+                  onclick="actualizarBodega()">Actualizar Stock</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- ═══ PANEL: CONFIGURACIÓN ═══ -->
@@ -320,6 +342,22 @@
                       PM</button>
                   </div>
                   <input type="hidden" id="ordeno-horario" value="AM">
+                </div>
+                <div class="col-12 mt-3">
+                  <div class="form-group mb-3">
+                    <label class="form-label d-block"
+                      style="font-size: 1rem; color: #ffffff; font-weight: 700; margin-bottom: 0.3rem;">📍 Potrero
+                      Actual</label>
+                    <input type="text" id="ordeno-potrero" list="potreros-list" class="form-control form-control-lg"
+                      placeholder="Escribe o selecciona..."
+                      style="border: 2px solid #4ade80; border-radius: 8px; color: #ffffff !important; font-weight: 700; font-size: 1.15rem; background-color: rgba(0,0,0,0.4) !important;">
+                    <datalist id="potreros-list">
+                      <option value="Potrero 1"></option>
+                      <option value="Potrero 2"></option>
+                      <option value="Potrero 3 (Estrella)"></option>
+                      <option value="Potrero 4 (Brizantha)"></option>
+                    </datalist>
+                  </div>
                 </div>
               </div>
 
@@ -524,6 +562,11 @@
                     <label class="form-label">Administrador</label>
                     <input type="text" id="vacu-administrador" class="form-control" placeholder="Umata, Vet...">
                   </div>
+                  <div class="col-12 mt-2">
+                    <label class="form-label">🚫 Días de Retiro de Leche (Limpieza Antibiótico)</label>
+                    <input type="number" id="vacu-dias-retiro" class="form-control" min="0"
+                      placeholder="Ej: 5 días (0 = Sin retiro)">
+                  </div>
                   <div class="col-12">
                     <label class="form-label">Notas</label>
                     <textarea id="vacu-observaciones" class="form-control" rows="2"
@@ -694,8 +737,11 @@
                     step="5000" placeholder="0" onchange="recalcRentabilidad()">
                 </div>
               </div>
-              <div class="col-md-3">
-                <label class="form-label">🏠 Mantenimiento Otros</label>
+              <div class="col-md-6">
+                <label class="form-label" style="margin-bottom: 2px;">🏠 Mantenimiento por Vaca Seca <span
+                    style="font-size: 1.1rem; vertical-align: middle;">ⓘ</span></label>
+                <div style="font-size: 0.85rem; color: #fbbf24; margin-bottom: 8px; font-weight: 500;">Gasto de animales
+                  sin producción (secas, machos). Si pones 0, no afecta el cálculo.</div>
                 <div class="input-group">
                   <span class="input-group-text">$</span>
                   <input type="number" id="costo-mantenimiento-no-prod" class="form-control" min="0" step="1000"
@@ -755,7 +801,7 @@
               <div class="kpi-card">
                 <div class="stat-icon">🏆</div>
                 <div class="kpi-value positive" id="kpi-ganancia">$0</div>
-                <div class="kpi-label">Ganancia Neta</div>
+                <div class="kpi-label">Ganancia Operativa</div>
                 <div class="kpi-sublabel" id="kpi-margen">Margen: 0%</div>
               </div>
               <div class="kpi-card">
@@ -786,6 +832,13 @@
                 <div class="card-title">📉 Costo/Litro vs Precio de Venta</div>
                 <div style="height: 280px;">
                   <canvas id="chart-costo-vs-venta"></canvas>
+                </div>
+              </div>
+              <!-- Gráfico Potreros -->
+              <div class="chart-card" style="grid-column: 1 / -1;">
+                <div class="card-title">🌱 Análisis Producción por Potrero</div>
+                <div style="height: 280px;">
+                  <canvas id="chart-potreros"></canvas>
                 </div>
               </div>
             </div>
@@ -1081,6 +1134,73 @@
               </table>
             </div>
           </div>
+
+          <div class="section-header mt-5">
+            <h1 class="section-title">💲 Explorador de Costos Mensuales</h1>
+            <p class="section-subtitle">Visualiza y administra los gastos operativos registrados</p>
+          </div>
+
+          <div class="card-pamora mb-3">
+            <div class="row g-3">
+              <div class="col-md-5">
+                <label class="form-label">Mes</label>
+                <select id="costos-explorer-mes" class="form-select" onchange="loadCostosExplorer()">
+                  <option value="0">Enero</option>
+                  <option value="1">Febrero</option>
+                  <option value="2">Marzo</option>
+                  <option value="3">Abril</option>
+                  <option value="4">Mayo</option>
+                  <option value="5">Junio</option>
+                  <option value="6">Julio</option>
+                  <option value="7">Agosto</option>
+                  <option value="8">Septiembre</option>
+                  <option value="9">Octubre</option>
+                  <option value="10">Noviembre</option>
+                  <option value="11">Diciembre</option>
+                </select>
+              </div>
+              <div class="col-md-5">
+                <label class="form-label">Año</label>
+                <select id="costos-explorer-anio" class="form-select" onchange="loadCostosExplorer()">
+                  <!-- Autollenado por JS -->
+                </select>
+              </div>
+              <div class="col-md-2 d-flex align-items-end">
+                <button class="btn-pamora w-100" onclick="loadCostosExplorer()">🔄 Refrescar</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-pamora">
+            <div class="table-wrapper">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Tipo de Gasto</th>
+                    <th>Descripción</th>
+                    <th>Registrado por</th>
+                    <th style="text-align:right;">Monto</th>
+                    <th style="text-align:center; width: 60px;">⚙️</th>
+                  </tr>
+                </thead>
+                <tbody id="costos-explorer-tbody">
+                  <tr>
+                    <td colspan="6" class="text-center" style="padding:40px; color:var(--text-muted);">Cargando gastos
+                      del mes...</td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colspan="4" style="text-align:right; font-weight:bold;">Total Mensual:</td>
+                    <td id="costos-explorer-total"
+                      style="text-align:right; font-weight:bold; color:var(--text-accent);">$0</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
         </div>
 
 
@@ -1268,6 +1388,7 @@
                     <!-- Columns for each cow inserted dynamically -->
                     <th>Total</th>
                     <th>Notas</th>
+                    <th style="width:60px;">⚙️</th>
                   </tr>
                 </thead>
                 <tbody id="registros-tbody">
@@ -1460,7 +1581,7 @@
         </div>
         <div class="col-md-8 mb-2">
           <label class="form-label">Nombre</label>
-          <input type="text" id="edit-animal-name" class="form-control" readOnly>
+          <input type="text" id="edit-animal-name" class="form-control">
         </div>
       </div>
 

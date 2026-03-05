@@ -83,6 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initDateDefaults();
     initIdleTimer();
     initFormListeners();
+    verificarBodega();
 });
 
 let idleTimer;
@@ -333,6 +334,9 @@ function showApp(userName) {
     if (nameEl) nameEl.textContent = userName || '';
 
     if (isDemo) showToast('Modo demo — datos de ejemplo', 'info');
+
+    // Forzar siempre la pestaña de inicio al arrancar
+    switchTab('inicio');
 }
 
 
@@ -394,7 +398,10 @@ function _doSwitchTab(tabId) {
     if (tabId === 'inicio') loadDashboardStats();
     if (tabId === 'rentabilidad') loadRentabilidad();
     if (tabId === 'historial') loadHistorial();
-    if (tabId === 'explorador') loadEventExplorer();
+    if (tabId === 'explorador') {
+        loadEventExplorer();
+        loadCostosExplorer();
+    }
     if (tabId === 'mi-hato') loadHerdInventory();
     if (tabId === 'gestacion') loadDashboardStats();
     if (tabId === 'vacunaciones') loadVacunaciones();
@@ -416,21 +423,31 @@ function initDateDefaults() {
         if (el) el.value = dateStr;
     });
 
+    // Restaurar el último potrero seleccionado para minimizar el trabajo diario del operario
+    const lastPotrero = localStorage.getItem('last_ordeno_potrero');
+    if (lastPotrero) {
+        const potreroInput = document.getElementById('ordeno-potrero');
+        if (potreroInput) potreroInput.value = lastPotrero;
+    }
+
     const mesSelect = document.getElementById('rentabilidad-mes');
     const anioSelect = document.getElementById('rentabilidad-anio');
     if (mesSelect) mesSelect.value = today.getMonth().toString();
 
+    // Costos Explorer Selectors
+    const expMes = document.getElementById('costos-explorer-mes');
+    const expAnio = document.getElementById('costos-explorer-anio');
+    if (expMes) expMes.value = today.getMonth().toString();
+
     // Populate years dynamically from 2024 to current+1
-    if (anioSelect) {
+    if (anioSelect || expAnio) {
         const currentYear = today.getFullYear();
-        anioSelect.innerHTML = '';
+        const yearsHTML = [];
         for (let y = 2024; y <= currentYear + 1; y++) {
-            const opt = document.createElement('option');
-            opt.value = y;
-            opt.textContent = y;
-            if (y === currentYear) opt.selected = true;
-            anioSelect.appendChild(opt);
+            yearsHTML.push(`<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`);
         }
+        if (anioSelect) anioSelect.innerHTML = yearsHTML.join('');
+        if (expAnio) expAnio.innerHTML = yearsHTML.join('');
     }
 
     // Initialize registros selectors too
@@ -450,11 +467,18 @@ function buildAnimalInputs(gridId, prefix) {
 
     // If census is not yet loaded, try to filter from raw category name "Vaca (Producción)" if meta exists locally
     // but the BEST way is to wait for the censo status.
-    const listToRender = lactantes.map(l => l.nombre);
+    const todayStr = new Date().toISOString().split('T')[0];
 
-    grid.innerHTML = listToRender.map((animal, index) => `
+    grid.innerHTML = lactantes.map((animalObj, index) => {
+        const animal = animalObj.nombre;
+        let alertHtml = '';
+        if (animalObj.retiroHasta && animalObj.retiroHasta >= todayStr) {
+            alertHtml = `<span title="Retiro por antibióticos hasta el ${formatDate(animalObj.retiroHasta)}" style="font-size:0.75rem; color:#ef4444; background:rgba(239,68,68,0.1); padding:2px 6px; border-radius:10px; margin-left:6px; font-weight:700;">🔴 RETIRO</span>`;
+        }
+
+        return `
     <div class="animal-input-group" id="group-${prefix}-${animal}">
-      <label>${getAnimalEmoji(animal)} ${animal}</label>
+      <label>${getAnimalEmoji(animal)} ${animal} ${alertHtml}</label>
       <div class="d-flex gap-1 align-items-center">
         <input type="number" id="${prefix}-litros-${animal}" min="0" step="0.1" placeholder="0"
                data-animal="${animal}" class="${prefix}-litros-input form-control form-control-lg"
@@ -468,7 +492,7 @@ function buildAnimalInputs(gridId, prefix) {
                onchange="toggleSinOrdeno(this, '${prefix}')"> Sin ordeño
       </label>
     </div>
-  `).join('');
+  `}).join('');
 }
 
 function focusNextAnimal(prefix, currentIndex) {
@@ -773,11 +797,40 @@ async function handleEvento(e) {
             return;
         }
     } else if (tipo === 'nacimiento') {
-        payload.madre = document.getElementById('nac-madre').value;
-        payload.cria = document.getElementById('nac-cria').value;
-        payload.sexo = document.getElementById('nac-sexo').value;
-        payload.peso = document.getElementById('nac-peso').value;
-        payload.observaciones = document.getElementById('nac-observaciones').value;
+        payload.producto = document.getElementById('vacu-producto').value;
+        payload.dosis = document.getElementById('vacu-dosis').value;
+        payload.lote = document.getElementById('vacu-lote').value;
+        payload.administrador = document.getElementById('vacu-administrador').value;
+        payload.observaciones = document.getElementById('vacu-observaciones').value;
+        const diasRetiro = parseInt(document.getElementById('vacu-dias-retiro')?.value) || 0;
+        payload.diasRetiro = diasRetiro;
+
+        if (diasRetiro > 0) {
+            const dateRetiro = new Date(payload.fecha);
+            dateRetiro.setDate(dateRetiro.getDate() + diasRetiro);
+            payload.fechaLiberacion = dateRetiro.toISOString().split('T')[0];
+
+            // Actualizar la vaca en hato_detalle
+            if (payload.animal) {
+                if (db) {
+                    db.collection('hato_detalle').doc(getAnimalDocId(payload.animal)).update({
+                        retiroHasta: payload.fechaLiberacion
+                    }).catch(err => console.warn('No se pudo actualizar retiro en hato_detalle', err));
+                }
+            } else {
+                // Si fue el hato entero
+                if (currentHerdCenso) {
+                    currentHerdCenso.forEach(a => {
+                        if (db) {
+                            db.collection('hato_detalle').doc(getAnimalDocId(a.nombre)).update({
+                                retiroHasta: payload.fechaLiberacion
+                            }).catch(err => console.warn('No se pudo actualizar retiro en hato', err));
+                        }
+                    });
+                }
+            }
+            showToast(`Atención: Retiro de leche de ${diasRetiro} días guardado.`, 'warning');
+        }
 
         if (!payload.madre || !payload.cria) {
             showToast('Completa madre y nombre de la cría', 'error');
@@ -919,14 +972,18 @@ async function fetchFromSheets(accion, params = {}) {
 
             // ─── CRITICAL FIX: Filter produccion by month and year ───────────
             let fetchPromise;
-            if ((accion === 'produccion_mes' || accion === 'rentabilidad') && params.mes !== undefined && params.anio !== undefined) {
+            if ((accion === 'produccion_mes' || accion === 'rentabilidad' || accion === 'gastos_mes') && params.mes !== undefined && params.anio !== undefined) {
                 const mes = parseInt(params.mes);
                 const anio = parseInt(params.anio);
                 // Build date range for the month
                 const firstDay = `${anio}-${String(mes + 1).padStart(2, '0')}-01`;
                 const lastDay = new Date(anio, mes + 1, 0);
                 const lastDayStr = `${anio}-${String(mes + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`;
-                fetchPromise = db.collection('produccion')
+
+                let tgtColl = coll;
+                if (accion === 'gastos_mes') tgtColl = 'gastos';
+
+                fetchPromise = db.collection(tgtColl)
                     .where('fecha', '>=', firstDay)
                     .where('fecha', '<=', lastDayStr)
                     .orderBy('fecha', 'desc')
@@ -1283,17 +1340,21 @@ const MESES_NOMBRES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'J
 
 async function generarAnalisisMes() {
     if (!lastRentabilidadData) {
-        showToast('Carga primero los datos del mes con "Generar Análisis"', 'warning');
-        return;
+        lastRentabilidadData = {
+            totalLitros: 0,
+            ingresos: 0,
+            gastos: 0,
+            ganancia: 0,
+            margen: 0,
+            mejorVaca: 'N/A',
+            peorVaca: 'N/A',
+            precioVenta: 0,
+            costoPorLitro: 0
+        };
     }
 
-    // These fields are now always set by renderRentabilidad()
-    const { totalLitros, ingresos, gastos, ganancia, margen, mejorVaca, peorVaca, precioVenta, costoPorLitro } = lastRentabilidadData;
-
-    if (ingresos === undefined || margen === undefined) {
-        showToast('Completa los parámetros contables y guarda primero', 'warning');
-        return;
-    }
+    // These fields are now always set by renderRentabilidad() or the fallback above
+    const { totalLitros = 0, ingresos = 0, gastos = 0, ganancia = 0, margen = 0, mejorVaca = 'N/A', peorVaca = 'N/A', precioVenta = 0, costoPorLitro = 0 } = lastRentabilidadData;
 
     const mesEl = document.getElementById('rentabilidad-mes');
     const anioEl = document.getElementById('rentabilidad-anio');
@@ -1343,8 +1404,17 @@ async function generarAnalisisMes() {
 
 async function exportarReportePDF() {
     if (!lastRentabilidadData) {
-        showToast('Genera primero el análisis del mes', 'warning');
-        return;
+        lastRentabilidadData = {
+            totalLitros: 0,
+            ingresos: 0,
+            gastos: 0,
+            ganancia: 0,
+            margen: 0,
+            mejorVaca: 'N/A',
+            peorVaca: 'N/A',
+            precioVenta: 0,
+            costoPorLitro: 0
+        };
     }
 
     const mesEl = document.getElementById('rentabilidad-mes');
@@ -1409,18 +1479,33 @@ async function exportarReportePDF() {
             toHide.forEach(el => el.style.visibility = 'hidden');
 
             try {
+                // Ensure charts are rendered with high quality and a white background for printing (saves ink and looks cleaner)
                 const canvas = await html2canvas(reportContainer, {
-                    backgroundColor: '#0d1a0d',
-                    scale: 1.5,
+                    backgroundColor: '#ffffff', // White background for PDF
+                    scale: 2, // Higher resolution
                     useCORS: true,
-                    logging: false
+                    logging: false,
+                    windowWidth: document.documentElement.offsetWidth,
+                    windowHeight: document.documentElement.offsetHeight
                 });
 
-                const imgData = canvas.toDataURL('image/png');
-                const imgWidth = 180;
+                const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                const imgWidth = 190; // Slightly larger to use more page width
                 const imgHeight = (canvas.height * imgWidth) / canvas.width;
-                if (y + imgHeight > 280) { pdf.addPage(); y = 15; }
-                pdf.addImage(imgData, 'PNG', 15, y, imgWidth, imgHeight);
+
+                if (y + imgHeight > 280) {
+                    pdf.addPage();
+                    y = 15;
+                } else {
+                    y += 10;
+                }
+
+                pdf.setFontSize(14);
+                pdf.setTextColor(34, 197, 94);
+                pdf.text('📊 Desglose Visual', 15, y);
+                y += 8;
+
+                pdf.addImage(imgData, 'JPEG', 10, y, imgWidth, imgHeight);
             } catch (canvasErr) {
                 console.error('Error capturing charts for PDF:', canvasErr);
             }
@@ -1612,17 +1697,16 @@ async function loadHerdInventory() {
         buildDietInputs(); // Ensure diet grid is built
         recalcRentabilidad();
 
+    } catch (e) {
+        console.error('Error in loadHerdInventory:', e);
+        showToast('Error al procesar censo dinámico', 'error');
+    } finally {
         updateSyncProgress(100, 'Sincronización terminada ✅');
         setTimeout(() => {
             const overlay = document.getElementById('loading-overlay');
             if (overlay) overlay.style.display = 'none';
+            updateSyncProgress(null);
         }, 800);
-    } catch (e) {
-        console.error('Error in loadHerdInventory:', e);
-        showToast('Error al procesar censo dinámico', 'error');
-        updateSyncProgress(null); // Hide progress bar on error
-        const overlay = document.getElementById('loading-overlay');
-        if (overlay) overlay.style.display = 'none';
     }
 }
 
@@ -2088,7 +2172,8 @@ function closeEditAnimalModal() {
 }
 
 async function saveAnimalMetadata() {
-    const name = document.getElementById('edit-animal-name-hidden').value;
+    const oldName = document.getElementById('edit-animal-name-hidden').value;
+    const newName = document.getElementById('edit-animal-name').value.trim();
     const id = document.getElementById('edit-animal-id').value.trim();
     const category = document.getElementById('edit-animal-category').value;
     const breed = document.getElementById('edit-animal-breed').value.trim();
@@ -2098,6 +2183,11 @@ async function saveAnimalMetadata() {
     const register = document.getElementById('edit-animal-register').value.trim();
     const notas = document.getElementById('edit-animal-notes').value.trim();
 
+    if (!newName) {
+        showToast('El nombre no puede estar vacío', 'warning');
+        return;
+    }
+
     if (!db) {
         showToast('Modo demo: No se puede guardar metadatos', 'warning');
         closeEditAnimalModal();
@@ -2105,9 +2195,10 @@ async function saveAnimalMetadata() {
     }
 
     try {
-        const docId = getAnimalDocId(name);
-        await db.collection('hato_detalle').doc(docId).set({
+        const docId = getAnimalDocId(newName);
+        const dataToSave = {
             idAnimal: id,
+            nombre: newName,
             categoria: category,
             raza: breed,
             fechaNacimiento: birth,
@@ -2116,9 +2207,25 @@ async function saveAnimalMetadata() {
             registro: register,
             notas: notas,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        };
 
-        showToast(`Datos de ${name} actualizados ✅`, 'success');
+        if (oldName !== newName) {
+            // Update global config array
+            const hatoDoc = await db.collection('config').doc('hato').get();
+            if (hatoDoc.exists) {
+                let animales = hatoDoc.data().animales || [];
+                animales = animales.map(a => a === oldName ? newName : a);
+                await db.collection('config').doc('hato').update({ animales });
+            }
+
+            // Delete old record
+            const oldDocId = getAnimalDocId(oldName);
+            await db.collection('hato_detalle').doc(oldDocId).delete();
+        }
+
+        await db.collection('hato_detalle').doc(docId).set(dataToSave, { merge: true });
+
+        showToast(`Datos de ${newName} actualizados ✅`, 'success');
         setDirty(false);
         closeEditAnimalModal();
         loadHerdInventory(); // Reload table
@@ -2323,8 +2430,19 @@ async function loadRentabilidad() {
     buildDietInputs(); // Generate inputs before setting values
     // Fetch production data for the month — now correctly filtered by month/year in fetchFromSheets
     const rawData = await fetchFromSheets('produccion_mes', params);
+
+    // Fetch gastos directos del mes para el calculo del CIF
+    const rawGastos = await fetchFromSheets('gastos_mes', params);
+    let totalGastosMes = 0;
+    if (rawGastos && rawGastos.filas) {
+        rawGastos.filas.forEach(g => {
+            totalGastosMes += (parseFloat(g.monto) || 0);
+        });
+    }
+
     // Transform raw {filas:[...]} into the aggregated format renderRentabilidad expects
     lastRentabilidadData = procesarProduccionMes(rawData, parseInt(params.mes), parseInt(params.anio));
+    lastRentabilidadData._gastosMes = totalGastosMes;
     recalcRentabilidad();
 }
 
@@ -2406,16 +2524,16 @@ function renderRentabilidad() {
     const countNoProd = (currentHerdCenso || []).filter(a => !a.estado.includes('LACTANDO')).length;
 
     const totalGastosAudit = totalCostoConcentradoAudit + (countNoProd * mantOtros) + costTerneras;
-    const utilidadAudit = ingresos - totalGastosAudit;
-    const margenAudit = ingresos > 0 ? (utilidadAudit / ingresos) * 100 : 0;
+    const utilidadOperativa = ingresos - totalGastosAudit;
+    const margenAudit = ingresos > 0 ? (utilidadOperativa / ingresos) * 100 : 0;
 
     // Update KPI UI
     document.getElementById('kpi-ingresos').textContent = '$' + formatNumber(ingresos);
     document.getElementById('kpi-gastos').textContent = '$' + formatNumber(totalGastosAudit);
     const utilEl = document.getElementById('kpi-ganancia');
-    utilEl.textContent = '$' + formatNumber(utilidadAudit);
-    utilEl.className = 'kpi-value ' + (utilidadAudit >= 0 ? 'positive' : 'negative');
-    setStatText('kpi-margen', 'Margen Real: ' + margenAudit.toFixed(1) + '%');
+    utilEl.textContent = '$' + formatNumber(utilidadOperativa);
+    utilEl.className = 'kpi-value ' + (utilidadOperativa >= 0 ? 'positive' : 'negative');
+    setStatText('kpi-margen', 'Margen Obj: ' + margenAudit.toFixed(1) + '%');
 
     // Semaphore
     const semaforo = document.getElementById('semaforo-circulo');
@@ -2487,7 +2605,7 @@ function renderRentabilidad() {
     Object.assign(lastRentabilidadData, {
         ingresos: parseFloat(ingresos.toFixed(0)),
         gastos: parseFloat(totalGastosAudit.toFixed(0)),
-        ganancia: parseFloat(utilidadAudit.toFixed(0)),
+        ganancia: parseFloat(utilidadOperativa.toFixed(0)),
         margen: parseFloat(margenAudit.toFixed(2)),
         costoPorLitro,
         precioVenta: precioLitro,
@@ -2576,6 +2694,21 @@ function renderInversoresPorVaca() {
 }
 
 function onInversorChange() {
+    // Save current states before re-rendering
+    const lactantes = (currentHerdCenso || []).filter(a => a.estado.includes('LACTANDO'));
+    const config = {};
+    lactantes.forEach(animal => {
+        const checkEl = document.getElementById(`inv-check-${animal.nombre}`);
+        const pctEl = document.getElementById(`inv-pct-${animal.nombre}`);
+        if (checkEl && pctEl) {
+            config[animal.nombre] = {
+                incluir: checkEl.checked,
+                pct: parseInt(pctEl.value) || 50
+            };
+        }
+    });
+    localStorage.setItem('pamora_inversores_config', JSON.stringify(config));
+
     // Rerender totals immediately when a checkbox or % changes
     renderInversoresPorVaca();
 }
@@ -3024,8 +3157,8 @@ async function executeFinalDelete(col, id) {
         loadHistorial();
         loadDashboardStats();
         if (typeof loadGestation === 'function') {
-            const insem = await fetchFromSheets('inseminaciones');
-            loadGestacion(insem);
+            const insemData = await fetchFromSheets('inseminaciones');
+            loadGestacion(insemData);
         }
         if (col === 'eventos' || col === 'gastos' || col === 'ordenos') {
             loadRentabilidad();
@@ -3377,7 +3510,77 @@ async function loadVacunaciones() {
         tbody.innerHTML = rows.join('');
     } catch (e) {
         console.error('Error loading vacunaciones:', e);
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="color:#ef4444;">Error: ${e.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="padding:20px; color:#ef4444;">Error: ${e.message}</td></tr>`;
+    }
+}
+
+// ─── EXPLORADOR DE COSTOS ───────────────────────────────────────────────────
+
+async function loadCostosExplorer() {
+    const tbody = document.getElementById('costos-explorer-tbody');
+    const totalEl = document.getElementById('costos-explorer-total');
+    if (!tbody) return;
+
+    const mes = parseInt(document.getElementById('costos-explorer-mes').value);
+    const anio = parseInt(document.getElementById('costos-explorer-anio').value);
+
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:40px;">🔍 Consultando base de datos...</td></tr>';
+
+    try {
+        const raw = await fetchFromSheets('gastos_mes', { mes, anio });
+        const gastos = raw.filas || [];
+
+        if (gastos.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:40px; color:var(--text-muted);">No hay gastos registrados en este mes.</td></tr>';
+            if (totalEl) totalEl.textContent = '$0';
+            return;
+        }
+
+        // Logic for 2-month restriction
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth();
+
+        // Month diff calculation
+        const monthDiff = (currentYear - anio) * 12 + (currentMonth - mes);
+        const canDelete = monthDiff <= 1; // Current month or previous month only
+
+        let totalSuma = 0;
+        tbody.innerHTML = gastos.map(g => {
+            const monto = parseFloat(g.monto) || 0;
+            totalSuma += monto;
+            const delBtn = canDelete ?
+                `<button class="btn-action btn-delete" onclick="eliminarGastoExplorer('${g.id}')" title="Eliminar Gasto">🗑️</button>` :
+                `<span title="Cerrado para edición" style="opacity:0.3; cursor:not-allowed;">🔒</span>`;
+
+            return `
+                <tr>
+                    <td>${g.fecha || '—'}</td>
+                    <td><span class="badge-pamora" style="background:rgba(59,130,246,0.1); color:#3b82f6;">${g.categoria || 'Gasto'}</span></td>
+                    <td style="font-size:0.9rem;">${g.descripcion || '—'}</td>
+                    <td style="font-size:0.85rem; color:var(--text-muted);">${g.registradoPor || '—'}</td>
+                    <td style="text-align:right; font-weight:700;">$${formatNumber(monto)}</td>
+                    <td style="text-align:center;">${delBtn}</td>
+                </tr>
+            `;
+        }).join('');
+
+        if (totalEl) totalEl.textContent = '$' + formatNumber(totalSuma);
+
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center" style="padding:20px; color:#ef4444;">Error: ${e.message}</td></tr>`;
+    }
+}
+
+async function eliminarGastoExplorer(id) {
+    if (!confirm('¿Estás seguro de que deseas eliminar este gasto? Esta acción no se puede deshacer.')) return;
+
+    try {
+        await db.collection('gastos').doc(id).delete();
+        showToast('Gasto eliminado exitosamente ✅', 'success');
+        loadCostosExplorer();
+    } catch (e) {
+        showToast('Error al eliminar: ' + e.message, 'error');
     }
 }
 
@@ -3827,10 +4030,17 @@ async function handleOrdeno(e) {
     const mes = fechaDate.getMonth();     // 0-indexed
     const anio = fechaDate.getFullYear();
 
+    const potrero = document.getElementById('ordeno-potrero')?.value || 'Sin Especificar';
+
+    if (potrero && potrero !== 'Sin Especificar') {
+        localStorage.setItem('last_ordeno_potrero', potrero);
+    }
+
     const payload = {
         tipo: 'produccion',
         fecha,
         horario,
+        potrero,
         litros,
         total: parseFloat(total.toFixed(1)),
         notas,
@@ -3947,6 +4157,7 @@ async function loadMilkRecords() {
         lactantes.forEach(a => { perVaca[a] = { am: 0, pm: 0, count: 0 }; });
 
         // Render rows
+        // Render rows directly
         const rows = registros.map(r => {
             const litros = r.litros || {};
             const turno = r.horario || '—';
@@ -3980,33 +4191,41 @@ async function loadMilkRecords() {
                 return `<td style="${style}">${val > 0 ? val.toFixed(1) : '—'}</td>`;
             }).join('')}
                 <td style="font-weight:700; color:var(--text-accent);">${rowTotal.toFixed(1)} L</td>
-                <td style="font-size:0.8rem; color:var(--text-muted);">${escapeHTML(r.notas || '')}</td>
+                <td style="font-size:0.8rem; color:var(--text-muted);">${escapeHTML(r.notas || '')} ${r.potrero ? `[${r.potrero}]` : ''}</td>
+                <td><button class="btn btn-sm btn-outline-danger" onclick="eliminarRegistroOrdeno('${r.id}')" title="Eliminar registro">🗑️</button></td>
             </tr>`;
         });
 
         if (tbody) tbody.innerHTML = rows.join('');
 
-        // Update summary stats
-        const statEl = id => document.getElementById(id);
-        if (statEl('reg-total-am')) statEl('reg-total-am').textContent = totalAM.toFixed(1);
-        if (statEl('reg-total-pm')) statEl('reg-total-pm').textContent = totalPM.toFixed(1);
-        if (statEl('reg-total-mes')) statEl('reg-total-mes').textContent = totalMes.toFixed(1);
-        if (statEl('reg-dias-registrados')) statEl('reg-dias-registrados').textContent = registros.length;
+        // Populate stats
+        document.getElementById('reg-total-am').textContent = totalAM.toFixed(1);
+        document.getElementById('reg-total-pm').textContent = totalPM.toFixed(1);
+        document.getElementById('reg-total-mes').textContent = (totalAM + totalPM).toFixed(1);
 
-        // Render per-animal summary
+        // Unique days count based on date grouping
+        const unqDias = new Set(registros.map(r => r.fecha)).size;
+        document.getElementById('reg-dias-registrados').textContent = unqDias;
+
+        // Render per-animal summary in its separate table snippet
         if (perVacaTbody) {
             perVacaTbody.innerHTML = lactantes.map(a => {
-                const data = perVaca[a] || { am: 0, pm: 0, count: 0 };
-                const total = data.am + data.pm;
-                const avg = data.count > 0 ? (total / data.count).toFixed(1) : '0.0';
+                const dataObj = perVaca[a] || { am: 0, pm: 0, count: 0 };
+                const totalObj = dataObj.am + dataObj.pm;
+                const avgObj = dataObj.count > 0 ? (totalObj / dataObj.count).toFixed(1) : '0.0';
                 return `<tr>
                     <td><strong>${getAnimalEmoji(a)} ${a}</strong></td>
-                    <td style="color:#f59e0b;">${data.am.toFixed(1)}</td>
-                    <td style="color:#818cf8;">${data.pm.toFixed(1)}</td>
-                    <td style="color:#4ade80; font-weight:700;">${total.toFixed(1)}</td>
-                    <td>${avg} L</td>
+                    <td style="color:#f59e0b;">${dataObj.am.toFixed(1)}</td>
+                    <td style="color:#818cf8;">${dataObj.pm.toFixed(1)}</td>
+                    <td style="color:#4ade80; font-weight:700;">${totalObj.toFixed(1)}</td>
+                    <td>${avgObj} L</td>
                 </tr>`;
             }).join('');
+        }
+
+        // ─── NUEVO: Generar gráfico de potreros (Rentabilidad/Mes) ───
+        if (typeof buildPotreroChart === 'function') {
+            buildPotreroChart(registros);
         }
 
         showToast(`✅ ${registros.length} registros cargados`, 'success');
@@ -4041,4 +4260,133 @@ async function cleanupHeaderRows() {
         });
         await batch.commit();
     } catch (e) { /* silent */ }
+}
+
+// ─── LÓGICA DE BODEGA E INVENTARIO ──────────────────────────────────────────
+function verificarBodega() {
+    const stockStr = localStorage.getItem('pamora_bodega_stock');
+    let stock = stockStr ? parseInt(stockStr) : 0;
+    document.getElementById('bodega-stock').textContent = stock;
+
+    // Calcular consumo diario aproximado (lactantes * kg/dia / 40kg)
+    let lactantesEnCenso = 0;
+    if (typeof currentHerdCenso !== 'undefined' && currentHerdCenso.length > 0) {
+        lactantesEnCenso = currentHerdCenso.filter(a => a.estado.toUpperCase().includes('LACTANDO')).length;
+    } else if (typeof ANIMALES !== 'undefined') {
+        lactantesEnCenso = ANIMALES.length; // fallback
+    }
+
+    // Asumiendo un promedio de 5kg por vaca (puede ajustarse a dinamico con la config real)
+    const consumoDiarioKg = lactantesEnCenso * 5;
+    const consumoDiarioBultos = consumoDiarioKg / 40;
+
+    let diasRestantes = 0;
+    if (consumoDiarioBultos > 0) diasRestantes = Math.floor(stock / consumoDiarioBultos);
+
+    const diasEl = document.getElementById('bodega-dias-restantes');
+    if (diasEl) {
+        diasEl.textContent = `Quedan ~${diasRestantes} días de alimento`;
+        if (diasRestantes <= 5) {
+            diasEl.style.color = '#ef4444';
+            diasEl.style.fontWeight = 'bold';
+            showToast('🚨 Alerta: Inventario de concentrado crítico (< 5 días)', 'warning');
+        } else {
+            diasEl.style.color = 'var(--text-muted)';
+            diasEl.style.fontWeight = 'normal';
+        }
+    }
+}
+
+function actualizarBodega() {
+    const input = document.getElementById('bodega-input');
+    if (!input || input.value === '') {
+        showToast('Ingresa una cantidad válida', 'error');
+        return;
+    }
+    const newValue = parseInt(input.value);
+    localStorage.setItem('pamora_bodega_stock', newValue);
+    input.value = '';
+    showToast('📦 Inventario de bodega actualizado', 'success');
+    verificarBodega();
+}
+
+// ─── ELIMINAR REGISTROS DE ORDEÑO ───────────────────────────────────────────
+async function eliminarRegistroOrdeno(id) {
+    if (!confirm('¿Estás seguro de que deseas eliminar este registro de ordeño? Esto afectará los totales de producción mensual.')) {
+        return;
+    }
+
+    if (!db) {
+        showToast('Base de datos no disponible', 'error');
+        return;
+    }
+
+    try {
+        await db.collection('produccion').doc(id).delete();
+        showToast('Registro de ordeño eliminado exitosamente', 'success');
+        // Refrescar la tabla actual
+        loadMilkRecords();
+    } catch (e) {
+        console.error('Error deleting record:', e);
+        showToast('Hubo un error al eliminar el registro: ' + e.message, 'error');
+    }
+}
+
+// ─── GRÁFICO DE POTREROS (Rentabilidad) ─────────────────────────────────────
+let chartPotreroInstance = null;
+function buildPotreroChart(registros) {
+    const canvas = document.getElementById('chart-potreros');
+    if (!canvas) return;
+
+    const potreroData = {};
+    registros.forEach(r => {
+        const potrero = r.potrero || 'Sin Especificar';
+        if (!potreroData[potrero]) potreroData[potrero] = 0;
+        potreroData[potrero] += (parseFloat(r.total) || 0);
+    });
+
+    // Sort descending by total production
+    const list = Object.entries(potreroData).sort((a, b) => b[1] - a[1]);
+    const labels = list.map(item => item[0]);
+    const data = list.map(item => parseFloat(item[1].toFixed(1)));
+
+    if (chartPotreroInstance) {
+        chartPotreroInstance.destroy();
+    }
+
+    chartPotreroInstance = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Litros Producidos',
+                data: data,
+                backgroundColor: 'rgba(34, 197, 94, 0.6)',
+                borderColor: '#22c55e',
+                borderWidth: 1,
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.raw.toLocaleString()} Litros`
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(255,255,255,0.05)' }
+                },
+                x: {
+                    grid: { display: false }
+                }
+            }
+        }
+    });
 }
