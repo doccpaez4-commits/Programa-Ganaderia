@@ -336,7 +336,7 @@ function showApp(userName) {
     if (isDemo) showToast('Modo demo — datos de ejemplo', 'info');
 
     // Forzar siempre la pestaña de inicio al arrancar
-    switchTab('inicio');
+    _doSwitchTab('inicio');
 }
 
 
