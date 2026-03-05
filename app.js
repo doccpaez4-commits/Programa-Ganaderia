@@ -19,6 +19,9 @@ const LOCAL_CREDENTIALS = {
     password: 'pamora2026'
 };
 
+// Seguridad para Rentabilidad
+let isRentabilidadAuth = false;
+
 // ─── SESSION PERSISTENCE ────────────────────────────────────
 const SESSION_KEY = 'pamora_session';
 const SESSION_HOURS = 8; // stay logged in for a full work day
@@ -368,12 +371,45 @@ function navGuardCancel() {
 }
 
 function switchTab(tabId) {
+    // Intercepción de seguridad para Rentabilidad
+    if (tabId === 'rentabilidad' && !isRentabilidadAuth) {
+        document.getElementById('modal-rentabilidad-auth').style.display = 'flex';
+        document.getElementById('rentabilidad-pass-input').focus();
+        return;
+    }
+
     if (hasUnsavedChanges) {
         _pendingTabId = tabId;
         document.getElementById('modal-nav-guard').style.display = 'flex';
         return; // Non-blocking: wait for user to choose in modal
     }
     _doSwitchTab(tabId);
+}
+
+// ─── SEGURIDAD RENTABILIDAD ──────────────────────────────────
+
+function checkRentabilidadPass() {
+    const input = document.getElementById('rentabilidad-pass-input');
+    const error = document.getElementById('rentabilidad-auth-error');
+
+    if (input.value === 'pamoraleche') {
+        isRentabilidadAuth = true;
+        input.value = '';
+        error.style.display = 'none';
+        document.getElementById('modal-rentabilidad-auth').style.display = 'none';
+        _doSwitchTab('rentabilidad');
+        showToast('🔓 Acceso concedido a Rentabilidad', 'success');
+    } else {
+        error.style.display = 'block';
+        input.value = '';
+        input.focus();
+    }
+}
+
+function closeRentabilidadAuth() {
+    document.getElementById('modal-rentabilidad-auth').style.display = 'none';
+    document.getElementById('rentabilidad-pass-input').value = '';
+    document.getElementById('rentabilidad-auth-error').style.display = 'none';
 }
 
 function _doSwitchTab(tabId) {
