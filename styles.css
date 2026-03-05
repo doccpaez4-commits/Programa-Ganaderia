@@ -597,6 +597,7 @@ body::before {
 .g-3 {
   gap: 1rem;
 }
+
 /* ─── Sync Progress Bar ────────────────────────────────── */
 .sync-progress-container {
   padding: 10px 24px;
@@ -632,6 +633,7 @@ body::before {
   box-shadow: 0 0 10px var(--glass-glow);
   transition: width 0.4s ease;
 }
+
 /* ─── Modals ────────────────────────────────────────────── */
 .modal-pamora-overlay {
   position: fixed;
@@ -681,7 +683,86 @@ body::before {
   font-weight: 600;
 }
 
-.badge-success { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(74, 222, 128, 0.3); }
-.badge-danger { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3); }
-.badge-warning { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
-.badge-info { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(96, 165, 250, 0.3); }
+.badge-success {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+.badge-danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+.badge-warning {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.badge-info {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(96, 165, 250, 0.3);
+}
+
+/* ─── Mobile Responsiveness ───────────────────────────── */
+@media (max-width: 768px) {
+  .nav-tabs-pamora {
+    padding: 8px 12px;
+    gap: 4px;
+    /* Allow tabs to scroll horizontally smoothly */
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .nav-tab {
+    padding: 8px 14px;
+    font-size: 0.85rem;
+  }
+
+  .header-user {
+    gap: 12px;
+  }
+
+  .header-user-name {
+    display: none;
+    /* Hide name on mobile to save space */
+  }
+
+  .app-content {
+    padding: 16px 12px;
+  }
+
+  .card-pamora {
+    padding: 20px 16px;
+  }
+
+  .section-title {
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-header {
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    text-align: center;
+  }
+
+  .header-user {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    /* Single column on very small screens */
+  }
+
+  .modal-pamora-content {
+    padding: 20px;
+    width: 95%;
+  }
+}

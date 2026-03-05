@@ -13,11 +13,34 @@
 const APPS_SCRIPT_URL = 'TU_URL_DE_APPS_SCRIPT_AQUI';
 const API_TOKEN = 'pamora_secreto_2026';
 
-// Credenciales locales (reemplazar por Firebase luego)
+// Credenciales locales
 const LOCAL_CREDENTIALS = {
     usuario: 'admin',
     password: 'pamora2026'
 };
+
+// ─── SESSION PERSISTENCE ────────────────────────────────────
+const SESSION_KEY = 'pamora_session';
+const SESSION_HOURS = 8; // stay logged in for a full work day
+
+function saveSession(user) {
+    const expiry = Date.now() + SESSION_HOURS * 60 * 60 * 1000;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ user, expiry }));
+}
+
+function loadSession() {
+    try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        if (!raw) return null;
+        const { user, expiry } = JSON.parse(raw);
+        if (Date.now() > expiry) { localStorage.removeItem(SESSION_KEY); return null; }
+        return user;
+    } catch { return null; }
+}
+
+function clearSession() {
+    localStorage.removeItem(SESSION_KEY);
+}
 
 const FIREBASE_CONFIG = {
     apiKey: "AIzaSyDVp5Vph7Li9QsOz4pGc6kFiXASDwC-6vM",
@@ -99,8 +122,12 @@ function initFirebase() {
                 // Logged in via Firebase
                 bootApp(user.email);
             } else {
-                // Demo mode if no backend configured
-                if (!db) {
+                // Check for local session fallback
+                const sessionUser = loadSession();
+                if (sessionUser) {
+                    bootApp(sessionUser);
+                } else if (!db) {
+                    // Demo mode if no backend configured
                     isDemo = true;
                     bootApp('Demo');
                 } else {
@@ -158,13 +185,25 @@ function setDirty(value = true) {
 }
 
 function initFormListeners() {
-    // Add listeners to main forms to detect changes
-    const forms = ['ordeno-form', 'evento-form', 'gasto-form'];
-    forms.forEach(id => {
-        const f = document.getElementById(id);
-        if (f) {
-            f.addEventListener('input', () => setDirty(true));
-            f.addEventListener('change', () => setDirty(true));
+    // Global listener for ANY input or change in the application
+    const excludedIds = ['search-animal', 'registros-mes', 'registros-anio', 'rentabilidad-mes', 'rentabilidad-anio', 'evento-tipo'];
+
+    document.addEventListener('input', (e) => {
+        // Ignore search bars or specific filters if they don't count as "unsaved record data"
+        if (excludedIds.includes(e.target.id) || e.target.classList.contains('no-dirty')) return;
+        setDirty(true);
+    });
+
+    document.addEventListener('change', (e) => {
+        if (excludedIds.includes(e.target.id) || e.target.classList.contains('no-dirty')) return;
+        setDirty(true);
+    });
+
+    // Browser-level protection (refreshes, closing tab)
+    window.addEventListener('beforeunload', (e) => {
+        if (hasUnsavedChanges) {
+            e.preventDefault();
+            e.returnValue = ''; // Required for Chrome
         }
     });
 }
@@ -235,7 +274,10 @@ function handleLogin(e) {
     if (auth) {
         // Firebase Authentication
         auth.signInWithEmailAndPassword(email, pass)
-            .then(() => { showToast('¡Bienvenido!', 'success'); })
+            .then(() => {
+                saveSession(email);
+                showToast('¡Bienvenido!', 'success');
+            })
             .catch(err => {
                 const messages = {
                     'auth/user-not-found': 'Usuario no encontrado',
@@ -252,6 +294,7 @@ function handleLogin(e) {
         // [SECURITY NOTE] Demo mode fallback - Do not use in production
         setTimeout(() => {
             if (email === LOCAL_CREDENTIALS.usuario && pass === LOCAL_CREDENTIALS.password) {
+                saveSession(email);
                 bootApp(escapeHTML(email));
                 showToast('¡Bienvenido (modo demo)!', 'success');
             } else {
@@ -265,6 +308,7 @@ function handleLogin(e) {
 }
 
 function handleLogout() {
+    clearSession();
     if (auth) {
         auth.signOut().then(() => showToast('Sesión cerrada', 'info'));
     } else {
@@ -300,14 +344,36 @@ function initNavigation() {
     });
 }
 
+// Stores the pending tab navigation when nav guard modal is shown
+let _pendingTabId = null;
+
+function navGuardConfirm() {
+    // User chose to leave — clear dirty flag and proceed
+    setDirty(false);
+    document.getElementById('modal-nav-guard').style.display = 'none';
+    if (_pendingTabId) {
+        const tabId = _pendingTabId;
+        _pendingTabId = null;
+        _doSwitchTab(tabId);
+    }
+}
+
+function navGuardCancel() {
+    _pendingTabId = null;
+    document.getElementById('modal-nav-guard').style.display = 'none';
+}
+
 function switchTab(tabId) {
     if (hasUnsavedChanges) {
-        if (!confirm('⚠️ Tienes cambios sin sincronizar en el formulario. ¿Deseas salir sin guardar?')) {
-            return;
-        }
+        _pendingTabId = tabId;
+        document.getElementById('modal-nav-guard').style.display = 'flex';
+        return; // Non-blocking: wait for user to choose in modal
     }
+    _doSwitchTab(tabId);
+}
 
-    // Reset dirty flag
+function _doSwitchTab(tabId) {
+    // Reset dirty flag (in case it wasn't via guard)
     setDirty(false);
 
     // 1. Close all modals immediately (requested by user)
@@ -333,6 +399,10 @@ function switchTab(tabId) {
     if (tabId === 'gestacion') loadDashboardStats();
     if (tabId === 'vacunaciones') loadVacunaciones();
     if (tabId === 'config') renderConfigAnimales();
+    if (tabId === 'registros') {
+        initRegistrosSelectors();
+        loadMilkRecords();
+    }
 }
 
 
@@ -362,6 +432,9 @@ function initDateDefaults() {
             anioSelect.appendChild(opt);
         }
     }
+
+    // Initialize registros selectors too
+    initRegistrosSelectors();
 }
 
 
@@ -438,14 +511,31 @@ function updateTotal(prefix) {
 }
 
 function buildAnimalSelectors() {
-    ['insem-animal', 'nac-madre', 'celo-animal', 'otro-animal'].forEach(selectId => {
+    // All selectors use the live census; celo-animal only shows cows and heifers
+    const censo = currentHerdCenso || [];
+    const allNames = censo.length > 0 ? censo.map(a => a.nombre) : ANIMALES;
+
+    // Filter rules per selector
+    const isCeloEligible = name => {
+        const n = name.toLowerCase();
+        return !n.includes('toro') && !n.includes('ternero');
+    };
+
+    const selectorRules = {
+        'celo-animal': allNames.filter(isCeloEligible),
+        'insem-animal': allNames.filter(isCeloEligible),
+        'nac-madre': allNames.filter(isCeloEligible),
+        'otro-animal': allNames
+    };
+
+    Object.entries(selectorRules).forEach(([selectId, names]) => {
         const select = document.getElementById(selectId);
         if (!select) return;
         select.innerHTML = '<option value="">— Seleccionar —</option>';
-        ANIMALES.forEach(animal => {
+        names.forEach(name => {
             const opt = document.createElement('option');
-            opt.value = animal;
-            opt.textContent = `${getAnimalEmoji(animal)} ${animal}`;
+            opt.value = name;
+            opt.textContent = `${getAnimalEmoji(name)} ${name}`;
             select.appendChild(opt);
         });
     });
@@ -526,7 +616,7 @@ async function checkPartoAlerts() {
 
     try {
         const snapshot = await db.collection('eventos')
-            .where('tipo', '==', 'Inseminación')
+            .where('tipo', '==', 'inseminacion')
             .where('estado', '==', 'Preñada')
             .get();
 
@@ -652,7 +742,8 @@ async function handleEvento(e) {
     const tipo = document.getElementById('evento-tipo').value;
 
     if (tipo === 'vacunacion') {
-        return handleVacunacion();
+        const btn = e.target.querySelector('button[type="submit"]');
+        return handleVacunacion(btn);
     }
 
     const fecha = document.getElementById('evento-fecha').value;
@@ -779,8 +870,9 @@ async function saveToCloud(data, btn, successId, formId) {
 
         if (APPS_SCRIPT_URL === 'TU_URL_DE_APPS_SCRIPT_AQUI') {
             await new Promise(r => setTimeout(r, 800));
-            showSyncSuccess(successId);
             if (formId) resetForm(formId);
+            setDirty(false);
+            showSyncSuccess(successId);
             showToast('✅ Registro guardado (modo demo)', 'success');
             return;
         }
@@ -791,6 +883,7 @@ async function saveToCloud(data, btn, successId, formId) {
         });
         const result = await response.json();
         if (result.success) {
+            setDirty(false);
             showSyncSuccess(successId);
             if (formId) resetForm(formId);
             showToast('☁️ Guardado en la nube', 'success');
@@ -818,13 +911,30 @@ async function fetchFromSheets(accion, params = {}) {
                 'inseminaciones': 'eventos',
                 'nacimientos': 'eventos',
                 'celos': 'eventos',
-                'vacunaciones': 'vacunaciones', // RESTORED missing mapping
+                'vacunaciones': 'vacunaciones',
                 'rentabilidad': 'produccion'
             };
             const coll = collectionMap[accion];
             if (!coll) return getDemoData(accion);
 
-            const fetchPromise = db.collection(coll).get();
+            // ─── CRITICAL FIX: Filter produccion by month and year ───────────
+            let fetchPromise;
+            if ((accion === 'produccion_mes' || accion === 'rentabilidad') && params.mes !== undefined && params.anio !== undefined) {
+                const mes = parseInt(params.mes);
+                const anio = parseInt(params.anio);
+                // Build date range for the month
+                const firstDay = `${anio}-${String(mes + 1).padStart(2, '0')}-01`;
+                const lastDay = new Date(anio, mes + 1, 0);
+                const lastDayStr = `${anio}-${String(mes + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`;
+                fetchPromise = db.collection('produccion')
+                    .where('fecha', '>=', firstDay)
+                    .where('fecha', '<=', lastDayStr)
+                    .orderBy('fecha', 'desc')
+                    .get();
+            } else {
+                fetchPromise = db.collection(coll).get();
+            }
+
             const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout Fetch Sheets')), 5000));
             const snapshot = await Promise.race([fetchPromise, timeoutPromise]);
             const filas = [];
@@ -987,11 +1097,12 @@ function renderDashboardUpdates(nac, vac, insem) {
         proximosPartos.forEach(f => {
             const diff = Math.ceil((f.fParto - hoy) / (1000 * 60 * 60 * 24));
             updates.push({
-                icon: '🤰',
+                icon: '🐄',
                 title: `Próximo parto: ${f.animal}`,
                 desc: `Fecha estimada: ${formatDate(f.fParto)} (${diff} días restantes)`,
                 type: 'warning',
-                date: f.fParto // This helps prioritizing "🤰" in the news feed
+                date: new Date(hoy.getTime() + 1000000), // Force to top by giving a "future" importance
+                priority: 1 // Custom field to ensure they stay at top
             });
         });
     }
@@ -1017,9 +1128,12 @@ function renderDashboardUpdates(nac, vac, insem) {
         return;
     }
 
-    // Render logic (Sorted by date to show most relevant first)
+    // Render logic (Sorted by priority then date)
     container.innerHTML = updates
-        .sort((a, b) => b.date - a.date)
+        .sort((a, b) => {
+            if (a.priority !== b.priority) return (b.priority || 0) - (a.priority || 0);
+            return b.date - a.date;
+        })
         .map(up => `
         <div class="update-item" style="border-left: 4px solid var(--${up.type}); margin-bottom: 10px; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; display: flex; align-items: flex-start; gap: 12px;">
             <div style="font-size: 1.5rem;">${up.icon}</div>
@@ -1169,20 +1283,27 @@ const MESES_NOMBRES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'J
 
 async function generarAnalisisMes() {
     if (!lastRentabilidadData) {
-        showToast('Carga primero los datos del mes', 'warning');
+        showToast('Carga primero los datos del mes con "Generar Análisis"', 'warning');
         return;
     }
 
+    // These fields are now always set by renderRentabilidad()
     const { totalLitros, ingresos, gastos, ganancia, margen, mejorVaca, peorVaca, precioVenta, costoPorLitro } = lastRentabilidadData;
+
+    if (ingresos === undefined || margen === undefined) {
+        showToast('Completa los parámetros contables y guarda primero', 'warning');
+        return;
+    }
+
     const mesEl = document.getElementById('rentabilidad-mes');
     const anioEl = document.getElementById('rentabilidad-anio');
     const mesNombre = mesEl ? MESES_NOMBRES[parseInt(mesEl.value)] : '';
     const anio = anioEl ? anioEl.value : '';
 
-    const invPercentStr = (parseFloat(document.getElementById('investor-percent').value) * 100) + '%';
-    const totalInversionistas = document.getElementById('investor-total')?.textContent || '$0';
+    // Read investor total from the new per-cow section
+    const totalInversionistas = document.getElementById('inversores-total-pago')?.textContent || '$0';
 
-    let semaforoMsg = "🔴 <strong>Estatus Financiero: PÉRDIDA CRÍTICA.</strong> El margen es negativo. Se recomienda revisar urgentemente los costos operativos o la eficiencia de producción.";
+    let semaforoMsg = "🔴 <strong>Estatus Financiero: PÉRDIDA / CRÍTICO.</strong> El margen es negativo. Se recomienda revisar urgentemente los costos operativos o la eficiencia de producción.";
     if (margen > 30) {
         semaforoMsg = "🟢 <strong>Estatus Financiero: ÓPTIMO.</strong> El hato presenta una salud financiera excelente con un margen superior al 30%. Es un momento ideal para reinversión.";
     } else if (margen >= 10) {
@@ -1194,15 +1315,15 @@ async function generarAnalisisMes() {
         <p>${semaforoMsg}</p>
         <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin:15px 0;">
         <div style="font-size: 0.9rem; line-height: 1.6;">
-            <p><strong>1. Desempeño Operativo:</strong> Se registraron <strong>${formatNumber(totalLitros)} litros</strong> de producción total. Con un precio unitario de $${formatNumber(precioVenta)}, el ingreso bruto consolidado es de <strong>$${formatNumber(ingresos)}</strong>.</p>
+            <p><strong>1. Desempeño Operativo:</strong> Se registraron <strong>${formatNumber(totalLitros)} litros</strong> de producción total. Con un precio unitario de $${formatNumber(precioVenta || 0)}, el ingreso bruto consolidado es de <strong>$${formatNumber(ingresos)}</strong>.</p>
             
-            <p><strong>2. Eficiencia de Costos:</strong> El costo de producción por litro se sitúa en <strong>$${formatNumber(costoPorLitro)}</strong>. El margen de contribución neta post-operación es del <strong>${margen.toFixed(1)}%</strong>.</p>
+            <p><strong>2. Eficiencia de Costos:</strong> El costo de producción por litro se sitúa en <strong>$${formatNumber(costoPorLitro || 0)}</strong>. El margen de contribución neta post-operación es del <strong>${(margen || 0).toFixed(1)}%</strong>. Gastos totales: $${formatNumber(gastos)}.</p>
             
-            <p><strong>3. Rendimiento Individual:</strong> La unidad productiva más eficiente fue <strong>${mejorVaca}</strong>. Se sugiere auditar el manejo de <strong>${peorVaca}</strong> para identificar fugas de rentabilidad por alimentación excedente.</p>
+            <p><strong>3. Rendimiento Individual:</strong> La unidad productiva más eficiente fue <strong>${mejorVaca || '(sin datos)'}</strong>. Se sugiere auditar el manejo de <strong>${peorVaca || '(sin datos)'}</strong> para identificar fugas de rentabilidad por alimentación excedente.</p>
             
-            <p><strong>4. Retribución a Capital:</strong> La utilidad neta líquida disponible para socios (Participación del ${invPercentStr}) asciende a <strong>${totalInversionistas}</strong> para este cierre contable.</p>
+            <p><strong>4. Retribución a Capital:</strong> La utilidad neta líquida disponible para socios (según configuración de inversores) asciende a <strong>${totalInversionistas}</strong> para este cierre contable.</p>
             
-            <p><strong>Conclusión:</strong> Basado en el flujo de caja, el proyecto se encuentra en una posición ${ganancia > 0 ? "sostenible" : "de riesgo"}. Se adjunta desglose por categorías en el reporte PDF para su debida revisión de juntas.</p>
+            <p><strong>Conclusión:</strong> Basado en el flujo de caja, el proyecto se encuentra en una posición ${(ganancia || 0) > 0 ? "sostenible" : "de riesgo"}. Se adjunta desglose por categorías en el reporte PDF para su debida revisión.</p>
         </div>
     `;
 
@@ -1254,13 +1375,13 @@ async function exportarReportePDF() {
         y += 10;
 
         // KPIs
-        const { totalLitros, ingresos, gastos, ganancia, margen, costoPorLitro } = lastRentabilidadData;
+        const { totalLitros = 0, ingresos = 0, gastos = 0, ganancia = 0, margen = 0, costoPorLitro = 0 } = lastRentabilidadData;
         pdf.setFontSize(11);
         pdf.setTextColor(30, 30, 30);
         const kpis = [
             [`Total Litros: ${formatNumber(totalLitros)} L`, `Ingresos: $${formatNumber(ingresos)}`],
             [`Gastos: $${formatNumber(gastos)}`, `Ganancia: $${formatNumber(ganancia)}`],
-            [`Margen: ${margen.toFixed(1)}%`, `Costo/Litro: $${formatNumber(costoPorLitro)}`],
+            [`Margen: ${formatNumber(margen)}%`, `Costo/Litro: $${formatNumber(costoPorLitro)}`],
         ];
         kpis.forEach(row => {
             pdf.text(row[0], 15, y);
@@ -1274,7 +1395,8 @@ async function exportarReportePDF() {
         if (analisisEl && analisisEl.textContent.trim()) {
             pdf.setFontSize(10);
             pdf.setTextColor(60, 60, 60);
-            const lines = pdf.splitTextToSize(analisisEl.textContent.replace(/\s+/g, ' ').trim(), 180);
+            const rawText = analisisEl.textContent.replace(/\s+/g, ' ').trim();
+            const lines = pdf.splitTextToSize(rawText, 180);
             pdf.text(lines, 15, y);
             y += lines.length * 5 + 5;
         }
@@ -1286,19 +1408,24 @@ async function exportarReportePDF() {
             const toHide = document.querySelectorAll('.btn-pamora, .section-header select, .section-header button');
             toHide.forEach(el => el.style.visibility = 'hidden');
 
-            const canvas = await html2canvas(reportContainer, {
-                backgroundColor: '#0d1a0d',
-                scale: 1.5,
-                useCORS: true,
-                logging: false
-            });
+            try {
+                const canvas = await html2canvas(reportContainer, {
+                    backgroundColor: '#0d1a0d',
+                    scale: 1.5,
+                    useCORS: true,
+                    logging: false
+                });
+
+                const imgData = canvas.toDataURL('image/png');
+                const imgWidth = 180;
+                const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                if (y + imgHeight > 280) { pdf.addPage(); y = 15; }
+                pdf.addImage(imgData, 'PNG', 15, y, imgWidth, imgHeight);
+            } catch (canvasErr) {
+                console.error('Error capturing charts for PDF:', canvasErr);
+            }
 
             toHide.forEach(el => el.style.visibility = 'visible');
-
-            const imgData = canvas.toDataURL('image/png');
-            const imgHeight = (canvas.height * 180) / canvas.width;
-            if (y + imgHeight > 280) { pdf.addPage(); y = 15; }
-            pdf.addImage(imgData, 'PNG', 15, y, 180, imgHeight);
         }
 
         pdf.save(`PaMora_Rentabilidad_${mesNombre}_${anio}.pdf`);
@@ -1439,7 +1566,7 @@ async function loadHerdInventory() {
                     estado = 'SECANDO 💤';
                     colorEstado = '#f59e0b';
                 } else if (category === 'Próxima parto') {
-                    estado = 'PRÓXIMA PARTO 🤰';
+                    estado = 'PRÓXIMA PARTO 🐄';
                     colorEstado = '#a78bfa';
                 } else if (['Ternera', 'Novilla'].includes(category)) {
                     estado = 'TERNERA 🌱';
@@ -1482,10 +1609,20 @@ async function loadHerdInventory() {
         renderConfigAnimales();
 
         // After loading inventory, trigger a rentability recalc
+        buildDietInputs(); // Ensure diet grid is built
         recalcRentabilidad();
+
+        updateSyncProgress(100, 'Sincronización terminada ✅');
+        setTimeout(() => {
+            const overlay = document.getElementById('loading-overlay');
+            if (overlay) overlay.style.display = 'none';
+        }, 800);
     } catch (e) {
         console.error('Error in loadHerdInventory:', e);
         showToast('Error al procesar censo dinámico', 'error');
+        updateSyncProgress(null); // Hide progress bar on error
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) overlay.style.display = 'none';
     }
 }
 
@@ -1881,6 +2018,7 @@ async function saveNewAnimal() {
         });
 
         showToast(`${name} registrado con éxito 🐄`, 'success');
+        setDirty(false);
         closeAddAnimalModal();
         loadHerdInventory();
     } catch (e) {
@@ -1981,6 +2119,7 @@ async function saveAnimalMetadata() {
         }, { merge: true });
 
         showToast(`Datos de ${name} actualizados ✅`, 'success');
+        setDirty(false);
         closeEditAnimalModal();
         loadHerdInventory(); // Reload table
     } catch (e) {
@@ -2121,9 +2260,11 @@ async function guardarParametrosRentabilidad() {
     const costoTerneras = parseFloat(document.getElementById('costo-concentrado-terneras').value) || 0;
 
     const dietas = {};
-    ANIMALES.forEach(animal => {
-        const val = parseFloat(document.getElementById(`diet-kg-${animal}`).value) || 0;
-        dietas[animal] = val;
+    // Use census animals (not static ANIMALES) to match inputs built by buildDietInputs()
+    const lactantesSave = (currentHerdCenso || []).filter(a => a.estado.includes('LACTANDO'));
+    lactantesSave.forEach(a => {
+        const el = document.getElementById(`diet-kg-${a.nombre}`);
+        if (el) dietas[a.nombre] = parseFloat(el.value) || 0;
     });
 
     if (!db) {
@@ -2141,6 +2282,7 @@ async function guardarParametrosRentabilidad() {
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
         showToast('Configuración del mes guardada ✅', 'success');
+        setDirty(false);
         recalcRentabilidad();
     } catch (e) {
         console.error('Error saving rentability config:', e);
@@ -2167,19 +2309,64 @@ async function loadRentabilidad() {
                 document.getElementById('costo-concentrado-terneras').value = config.costoTerneras || 0;
 
                 const diets = config.dietas || {};
-                ANIMALES.forEach(animal => {
-                    const el = document.getElementById(`diet-kg-${animal}`);
-                    if (el) el.value = diets[animal] || 0;
+                // Use census animals (not static ANIMALES) to match inputs built by buildDietInputs()
+                const lactantes = (currentHerdCenso || []).filter(a => a.estado.includes('LACTANDO'));
+                lactantes.forEach(a => {
+                    const el = document.getElementById(`diet-kg-${a.nombre}`);
+                    if (el) el.value = diets[a.nombre] || 0;
                 });
             }
         } catch (e) { console.error('Error loading config:', e); }
     }
     updatePrecioPorKg();
 
-    // Fetch production data for the month
-    const mesData = await fetchFromSheets('produccion_mes', params);
-    lastRentabilidadData = mesData;
+    buildDietInputs(); // Generate inputs before setting values
+    // Fetch production data for the month — now correctly filtered by month/year in fetchFromSheets
+    const rawData = await fetchFromSheets('produccion_mes', params);
+    // Transform raw {filas:[...]} into the aggregated format renderRentabilidad expects
+    lastRentabilidadData = procesarProduccionMes(rawData, parseInt(params.mes), parseInt(params.anio));
     recalcRentabilidad();
+}
+
+/**
+ * Converts raw `{ filas: [{fecha, horario, litros, total, ...}] }` from Firebase
+ * into the aggregated object that renderRentabilidad() and buildProduccionAnimalChart() need.
+ */
+function procesarProduccionMes(rawData, mes, anio) {
+    const filas = rawData?.filas || [];
+
+    if (!filas.length) {
+        const produccionPorAnimal = {};
+        ANIMALES.forEach(a => { produccionPorAnimal[a] = { total: 0, count: 0 }; });
+        return { totalLitros: 0, diasRegistrados: 0, produccionPorAnimal, porCategoria: {} };
+    }
+
+    let totalLitros = 0;
+    const produccionPorAnimal = {};
+
+    filas.forEach(row => {
+        const litros = row.litros || {};
+        const rowTotal = typeof row.total === 'number' ? row.total
+            : Object.values(litros).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+        totalLitros += rowTotal;
+
+        Object.entries(litros).forEach(([animal, val]) => {
+            if (!produccionPorAnimal[animal]) produccionPorAnimal[animal] = { total: 0, count: 0 };
+            produccionPorAnimal[animal].total += parseFloat(val) || 0;
+            produccionPorAnimal[animal].count++;
+        });
+    });
+
+    const uniqueDates = new Set(filas.map(r => r.fecha));
+    const mesNombres = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+    return {
+        totalLitros: parseFloat(totalLitros.toFixed(1)),
+        diasRegistrados: uniqueDates.size,
+        produccionPorAnimal,
+        porCategoria: {},
+        periodo: `${mesNombres[mes] || mes} ${anio}`
+    };
 }
 
 function recalcRentabilidad() {
@@ -2193,7 +2380,10 @@ function renderRentabilidad() {
     const precioLitro = parseFloat(document.getElementById('precio-venta-litro').value) || 2500;
     const precioBulto = parseFloat(document.getElementById('concentrado-precio-bulto').value) || 72000;
     const precioKg = precioBulto / 40;
-    const daysInMonth = data.diasRegistrados || 30;
+    // Use real calendar days for accurate cost projections
+    const selMes = parseInt(document.getElementById('rentabilidad-mes')?.value ?? new Date().getMonth());
+    const selAnio = parseInt(document.getElementById('rentabilidad-anio')?.value ?? new Date().getFullYear());
+    const daysInMonth = new Date(selAnio, selMes + 1, 0).getDate();
 
     const ingresos = data.totalLitros * precioLitro;
 
@@ -2213,7 +2403,7 @@ function renderRentabilidad() {
 
     const mantOtros = parseFloat(document.getElementById('costo-mantenimiento-no-prod').value) || 0;
     const costTerneras = parseFloat(document.getElementById('costo-concentrado-terneras').value) || 0;
-    const countNoProd = (currentHerdCenso || []).filter(a => !a.estado.includes('Producción')).length;
+    const countNoProd = (currentHerdCenso || []).filter(a => !a.estado.includes('LACTANDO')).length;
 
     const totalGastosAudit = totalCostoConcentradoAudit + (countNoProd * mantOtros) + costTerneras;
     const utilidadAudit = ingresos - totalGastosAudit;
@@ -2245,17 +2435,27 @@ function renderRentabilidad() {
 
     // Charts
     buildProduccionAnimalChart(data);
-    data._dPrecioVenta = precioLitro;
-    buildCostoVsVentaChart(data);
-    const dynamicData = JSON.parse(JSON.stringify(data));
-    if (dynamicData.porCategoria) dynamicData.porCategoria['Concentrado'] = totalCostoConcentradoAudit;
-    buildGastosCategoriaChart(dynamicData);
 
-    // Populate Per Cow Production Table (Requested/Noticed Empty)
+    // Compute cost per litre for the cost-vs-sale chart
+    const costoPorLitro = data.totalLitros > 0 ? parseFloat((totalGastosAudit / data.totalLitros).toFixed(2)) : 0;
+    data._dPrecioVenta = precioLitro;
+    data._costoPorLitro = costoPorLitro;
+    buildCostoVsVentaChart(data);
+
+    // Build real category breakdown for the donut
+    const gastosCats = {
+        'Concentrado': parseFloat(totalCostoConcentradoAudit.toFixed(0)),
+        'Mantenimiento': parseFloat((countNoProd * mantOtros).toFixed(0)),
+        'Terneras': parseFloat(costTerneras.toFixed(0))
+    };
+    // Filter out zero categories to keep the chart clean
+    const filteredCats = Object.fromEntries(Object.entries(gastosCats).filter(([, v]) => v > 0));
+    buildGastosCategoriaChart({ porCategoria: filteredCats });
+
+    // Populate Per Cow Production Table
     const perCowTbody = document.getElementById('per-cow-tbody');
     if (perCowTbody) {
         const lactantesList = (currentHerdCenso || []).filter(a => a.estado.includes('LACTANDO'));
-        // Sort by production descending (top performers first) or animal name
         perCowTbody.innerHTML = lactantesList.map(animal => {
             const prodInfo = data.produccionPorAnimal?.[animal.nombre] || { total: 0, count: 0 };
             const promedio = prodInfo.count > 0 ? (prodInfo.total / prodInfo.count).toFixed(1) : '0.0';
@@ -2268,18 +2468,131 @@ function renderRentabilidad() {
             return `<tr>
                 <td><strong>${getAnimalEmoji(animal.nombre)} ${animal.nombre}</strong></td>
                 <td>${prodInfo.total.toFixed(1)} L</td>
-                <td>${promedio} L/día</td>
-                <td>$${formatNumber(costoConc)}</td>
+                <td>${promedio} L/ord.</td>
+                <td>${kgDia.toFixed(1)} kg</td>
                 <td>$${formatNumber(ingreso)}</td>
+                <td>$${formatNumber(costoConc)}</td>
                 <td style="color:${balance >= 0 ? '#22c55e' : '#ef4444'}; font-weight:bold;">$${formatNumber(balance)}</td>
+                <td style="text-align:center;">${balance >= 0 ? '\u2705' : '\u26a0\ufe0f'}</td>
             </tr>`;
         }).join('');
     }
+
+    // --- Persist KPIs so generarAnalisisMes and investor calc can read them ---
+    // Determine best/worst cow
+    const prodEntries = Object.entries(data.produccionPorAnimal || {});
+    const mejorVaca = prodEntries.length > 0 ? prodEntries.sort((a, b) => b[1].total - a[1].total)[0][0] : '(sin datos)';
+    const peorVaca = prodEntries.length > 0 ? prodEntries.sort((a, b) => a[1].total - b[1].total)[0][0] : '(sin datos)';
+
+    Object.assign(lastRentabilidadData, {
+        ingresos: parseFloat(ingresos.toFixed(0)),
+        gastos: parseFloat(totalGastosAudit.toFixed(0)),
+        ganancia: parseFloat(utilidadAudit.toFixed(0)),
+        margen: parseFloat(margenAudit.toFixed(2)),
+        costoPorLitro,
+        precioVenta: precioLitro,
+        precioKg,
+        daysInMonth,
+        mejorVaca,
+        peorVaca
+    });
+
+    // Render per-cow investor table
+    renderInversoresPorVaca();
 }
 
 async function updateConcentradoVaca(animal, value) {
-    const val = parseFloat(value) || 0;
     recalcRentabilidad();
+}
+
+// ─── INVESTOR SECTION ────────────────────────────────────────
+
+function renderInversoresPorVaca() {
+    const tbody = document.getElementById('inversores-tbody');
+    const totalGananciaEl = document.getElementById('inversores-total-ganancia');
+    const totalPagoEl = document.getElementById('inversores-total-pago');
+    if (!tbody || !lastRentabilidadData) return;
+
+    const { produccionPorAnimal, precioVenta, precioKg, daysInMonth } = lastRentabilidadData;
+    if (!precioVenta || !precioKg) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding:16px;color:var(--text-muted);">Ingresa precio de leche y concentrado primero</td></tr>';
+        return;
+    }
+
+    // Load saved config from localStorage
+    const savedConfig = JSON.parse(localStorage.getItem('pamora_inversores_config') || '{}');
+
+    const lactantes = (currentHerdCenso || []).filter(a => a.estado.includes('LACTANDO'));
+    if (!lactantes.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding:16px;color:var(--text-muted);">No hay vacas en producción este mes</td></tr>';
+        return;
+    }
+
+    let totalGanancia = 0;
+    let totalPago = 0;
+
+    tbody.innerHTML = lactantes.map(animal => {
+        const prodInfo = produccionPorAnimal?.[animal.nombre] || { total: 0, count: 0 };
+        const kgDiaEl = document.getElementById(`diet-kg-${animal.nombre}`);
+        const kgDia = kgDiaEl ? parseFloat(kgDiaEl.value) || 0 : 0;
+
+        const ingresoBruto = prodInfo.total * precioVenta;
+        const costoConc = kgDia * (daysInMonth || 30) * precioKg;
+        const gananciaNeta = ingresoBruto - costoConc;
+
+        const savedCow = savedConfig[animal.nombre] || {};
+        const isChecked = savedCow.incluir !== false; // Default: included
+        const pct = savedCow.pct || 50;
+
+        const pago = isChecked ? Math.max(0, gananciaNeta * (pct / 100)) : 0;
+        if (isChecked) {
+            totalGanancia += gananciaNeta;
+            totalPago += pago;
+        }
+
+        return `<tr>
+            <td style="text-align:center;">
+                <input type="checkbox" id="inv-check-${animal.nombre}" ${isChecked ? 'checked' : ''} 
+                       onchange="onInversorChange()" class="no-dirty" style="width:16px;height:16px;">
+            </td>
+            <td><strong>${getAnimalEmoji(animal.nombre)} ${animal.nombre}</strong></td>
+            <td>${prodInfo.total.toFixed(1)} L</td>
+            <td>$${formatNumber(ingresoBruto)}</td>
+            <td style="color:#f59e0b;">$${formatNumber(costoConc)}</td>
+            <td style="color:${gananciaNeta >= 0 ? '#4ade80' : '#ef4444'}; font-weight:700;">$${formatNumber(gananciaNeta)}</td>
+            <td>
+                <div class="input-group input-group-sm">
+                    <input type="number" id="inv-pct-${animal.nombre}" value="${pct}" min="0" max="100" step="1"
+                           class="form-control no-dirty" style="max-width:70px;" onchange="onInversorChange()">
+                    <span class="input-group-text">%</span>
+                </div>
+            </td>
+            <td style="color:#4ade80; font-weight:800;">$${formatNumber(pago)}</td>
+        </tr>`;
+    }).join('');
+
+    if (totalGananciaEl) totalGananciaEl.textContent = '$' + formatNumber(totalGanancia);
+    if (totalPagoEl) totalPagoEl.textContent = '$' + formatNumber(totalPago);
+}
+
+function onInversorChange() {
+    // Rerender totals immediately when a checkbox or % changes
+    renderInversoresPorVaca();
+}
+
+function guardarConfigInversores() {
+    const lactantes = (currentHerdCenso || []).filter(a => a.estado.includes('LACTANDO'));
+    const config = {};
+    lactantes.forEach(animal => {
+        const chk = document.getElementById(`inv-check-${animal.nombre}`);
+        const pctEl = document.getElementById(`inv-pct-${animal.nombre}`);
+        config[animal.nombre] = {
+            incluir: chk ? chk.checked : true,
+            pct: pctEl ? parseFloat(pctEl.value) || 50 : 50
+        };
+    });
+    localStorage.setItem('pamora_inversores_config', JSON.stringify(config));
+    showToast('Configuración de inversores guardada ✅', 'success');
 }
 
 function buildProduccionAnimalChart(data) {
@@ -2317,11 +2630,14 @@ function buildCostoVsVentaChart(data) {
     const costoLabels = [];
     const costoData = [];
     const ventaData = [];
+    // Use the dynamically computed cost per litre (_costoPorLitro) set by renderRentabilidad
+    const costoPorLitro = data._costoPorLitro || data.costoPorLitro || 0;
+    const precioVenta = data._dPrecioVenta || data.precioVentaLitro || 0;
 
     for (let i = 1; i <= dias; i++) {
         costoLabels.push('Día ' + i);
-        costoData.push(data.costoPorLitro || 0);
-        ventaData.push(data._dPrecioVenta || data.precioVentaLitro || 0);
+        costoData.push(costoPorLitro);
+        ventaData.push(precioVenta);
     }
 
     ctx._chart = new Chart(ctx, {
@@ -2890,6 +3206,17 @@ function formatNumber(n) {
     return new Intl.NumberFormat('es-CO').format(n);
 }
 
+function escapeHTML(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+
 async function guardarParametrosRentabilidad() {
     if (!lastRentabilidadData) return;
 
@@ -2951,7 +3278,15 @@ async function guardarParametrosRentabilidad() {
 // ─── CERRAR TODOS LOS MODALES ────────────────────────────────────────────────
 
 function closeAllModals() {
-    ['modal-add-animal', 'modal-edit-animal', 'modal-confirm-delete', 'modal-import-excel'].forEach(id => {
+    [
+        'modal-add-animal',
+        'modal-edit-animal',
+        'modal-confirm-delete',
+        'modal-import-excel',
+        'modal-edit-vacunacion',
+        'modal-edit-inseminacion',
+        'modal-edit-nacimiento'
+    ].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
     });
@@ -3046,7 +3381,7 @@ async function loadVacunaciones() {
     }
 }
 
-async function handleVacunacion() {
+async function handleVacunacion(btn) {
     if (!db) { showToast('Modo demo: No disponible', 'warning'); return; }
     const fecha = document.getElementById('evento-fecha').value;
     const animal = document.getElementById('vacu-animal').value;
@@ -3059,15 +3394,32 @@ async function handleVacunacion() {
 
     if (!fecha || !tratamiento) { showToast('Completa fecha y nombre del producto', 'warning'); return; }
 
+    const originalHTML = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Sincronizando...';
+    }
+    showLoading(true);
+
     try {
         await db.collection('vacunaciones').add({
             fecha, animal, tipo, tratamiento, dosis, lote, administrador, observaciones,
             addedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         showToast(`${tipo} registrada ✅`, 'success');
+        setDirty(false);
+        showSyncSuccess('evento-success');
         ['vacu-producto', 'vacu-dosis', 'vacu-lote', 'vacu-administrador'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         document.getElementById('vacu-observaciones').value = '';
-    } catch (e) { showToast('Error al guardar: ' + e.message, 'error'); }
+    } catch (e) {
+        showToast('Error al guardar: ' + e.message, 'error');
+    } finally {
+        showLoading(false);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHTML;
+        }
+    }
 }
 
 async function seedVacunaciones(silent = false) {
@@ -3266,7 +3618,10 @@ async function saveEditVacunacion() {
         animal: document.getElementById('edit-vacu-animal').value,
         tipo: document.getElementById('edit-vacu-tipo').value,
         tratamiento: document.getElementById('edit-vacu-producto').value,
-        observaciones: document.getElementById('edit-vacu-obs').value
+        dosis: (document.getElementById('edit-vacu-dosis') || {}).value || '',
+        administrador: (document.getElementById('edit-vacu-admin') || {}).value || '',
+        observaciones: document.getElementById('edit-vacu-obs').value,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
 
     try {
@@ -3339,8 +3694,11 @@ async function saveEditInseminacion() {
         animal: document.getElementById('edit-insem-animal').value,
         estado: document.getElementById('edit-insem-estado').value,
         toro: document.getElementById('edit-insem-toro').value,
+        tecnico: (document.getElementById('edit-insem-tecnico') || {}).value || '',
         fechaEstimadaParto: document.getElementById('edit-insem-parto').value,
-        tipo: 'Inseminación' // Ensure it stays categorized
+        observaciones: (document.getElementById('edit-insem-obs') || {}).value || '',
+        tipo: 'Inseminación',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
 
     try {
@@ -3428,6 +3786,242 @@ async function saveEditNacimiento() {
         loadHistorial();
     } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
+
+// ─── REGISTRO DE ORDEÑO (handleOrdeno) ───────────────────────────────────────
+// NOTA: Esta función estaba referenciada en el HTML pero no existía en app.js.
+// Es el handler principal del formulario de ordeño.
+
+async function handleOrdeno(e) {
+    e.preventDefault();
+    const fecha = document.getElementById('ordeno-fecha').value;
+    const horario = document.getElementById('ordeno-horario').value;
+    const notas = document.getElementById('ordeno-notas')?.value || '';
+
+    if (!fecha) {
+        showToast('Selecciona la fecha del ordeño', 'error');
+        return;
+    }
+
+    // Collect litros per animal from inputs
+    const litros = {};
+    let total = 0;
+    const lactantes = (currentHerdCenso || []).filter(a => a.estado.toUpperCase().includes('LACTANDO'));
+
+    lactantes.forEach(animal => {
+        const input = document.getElementById(`ordeno-litros-${animal.nombre}`);
+        const sinOrdeno = document.querySelector(`.ordeno-sin-ordeno[data-animal="${animal.nombre}"]`);
+        if (input) {
+            const val = sinOrdeno?.checked ? 0 : (parseFloat(input.value) || 0);
+            litros[animal.nombre] = val;
+            total += val;
+        }
+    });
+
+    if (total <= 0) {
+        showToast('Ingresa al menos un litro para registrar el ordeño', 'warning');
+        return;
+    }
+
+    // Build the date parts for querying
+    const fechaDate = new Date(fecha + 'T12:00:00');
+    const mes = fechaDate.getMonth();     // 0-indexed
+    const anio = fechaDate.getFullYear();
+
+    const payload = {
+        tipo: 'produccion',
+        fecha,
+        horario,
+        litros,
+        total: parseFloat(total.toFixed(1)),
+        notas,
+        mes,
+        anio,
+        token: API_TOKEN
+    };
+
+    const btn = document.getElementById('ordeno-submit-btn');
+    await saveToCloud(payload, btn, 'ordeno-success', 'ordeno-form');
+}
+
+
+// ─── REGISTROS TAB: SELECTORS + DATA LOADER ──────────────────────────────────
+
+function initRegistrosSelectors() {
+    const today = new Date();
+    const mesSelect = document.getElementById('registros-mes');
+    const anioSelect = document.getElementById('registros-anio');
+
+    if (mesSelect && !mesSelect.value) {
+        mesSelect.value = today.getMonth().toString();
+    }
+
+    if (anioSelect) {
+        const currentYear = today.getFullYear();
+        if (anioSelect.options.length === 0) {
+            for (let y = 2024; y <= currentYear + 1; y++) {
+                const opt = document.createElement('option');
+                opt.value = y;
+                opt.textContent = y;
+                if (y === currentYear) opt.selected = true;
+                anioSelect.appendChild(opt);
+            }
+        }
+    }
+}
+
+async function loadMilkRecords() {
+    initRegistrosSelectors();
+
+    const mesEl = document.getElementById('registros-mes');
+    const anioEl = document.getElementById('registros-anio');
+    if (!mesEl || !anioEl) return;
+
+    const mes = parseInt(mesEl.value);
+    const anio = parseInt(anioEl.value);
+
+    const tbody = document.getElementById('registros-tbody');
+    const thead = document.getElementById('registros-thead');
+    const perVacaTbody = document.getElementById('registros-por-vaca-tbody');
+
+    if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="text-center" style="padding:30px;">🔍 Cargando registros de Firebase...</td></tr>';
+
+    if (!db) {
+        if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="text-center" style="padding:30px; color:var(--text-muted);">Registros solo disponibles con Firebase conectado.</td></tr>';
+        return;
+    }
+
+    try {
+        const firstDay = `${anio}-${String(mes + 1).padStart(2, '0')}-01`;
+        const lastDayDate = new Date(anio, mes + 1, 0);
+        const lastDay = `${anio}-${String(mes + 1).padStart(2, '0')}-${String(lastDayDate.getDate()).padStart(2, '0')}`;
+
+        const snapshot = await db.collection('produccion')
+            .where('fecha', '>=', firstDay)
+            .where('fecha', '<=', lastDay)
+            .orderBy('fecha', 'asc')
+            .get();
+
+        if (snapshot.empty) {
+            if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="text-center" style="padding:40px; color:var(--text-muted);">📭 No hay registros para ${MESES_NOMBRES[mes]} ${anio}.<br><small>Registra ordeños desde la pestaña "Ordeño".</small></td></tr>`;
+            if (perVacaTbody) perVacaTbody.innerHTML = '<tr><td colspan="5" class="text-center" style="padding:20px; color:var(--text-muted);">Sin datos</td></tr>';
+            // Reset stats
+            ['reg-total-am', 'reg-total-pm', 'reg-total-mes', 'reg-dias-registrados'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = '0';
+            });
+            return;
+        }
+
+        const registros = [];
+        snapshot.forEach(doc => registros.push({ id: doc.id, ...doc.data() }));
+
+        // Collect all unique animal names across all records
+        const animalNamesSet = new Set();
+        registros.forEach(r => {
+            if (r.litros && typeof r.litros === 'object') {
+                Object.keys(r.litros).forEach(a => animalNamesSet.add(a));
+            }
+        });
+        // Sort by lactante order
+        const lactantes = (currentHerdCenso || [])
+            .filter(a => a.estado.toUpperCase().includes('LACTANDO'))
+            .map(a => a.nombre)
+            .filter(n => animalNamesSet.has(n));
+        // Add any animals in Firebase not in current censo
+        animalNamesSet.forEach(n => { if (!lactantes.includes(n)) lactantes.push(n); });
+
+        // Build dynamic header
+        if (thead) {
+            thead.innerHTML = `<tr>
+                <th>Fecha</th>
+                <th>Turno</th>
+                ${lactantes.map(a => `<th style="font-size:0.8rem;">${getAnimalEmoji(a)} ${a}</th>`).join('')}
+                <th style="font-weight:700; color:var(--text-accent);">Total (L)</th>
+                <th>Notas</th>
+            </tr>`;
+        }
+
+        // Compute stats aggregates
+        let totalAM = 0, totalPM = 0, totalMes = 0;
+        const perVaca = {};
+        lactantes.forEach(a => { perVaca[a] = { am: 0, pm: 0, count: 0 }; });
+
+        // Render rows
+        const rows = registros.map(r => {
+            const litros = r.litros || {};
+            const turno = r.horario || '—';
+            const isAM = turno === 'AM';
+
+            let rowTotal = 0;
+            lactantes.forEach(a => {
+                const val = parseFloat(litros[a]) || 0;
+                rowTotal += val;
+                if (!perVaca[a]) perVaca[a] = { am: 0, pm: 0, count: 0 };
+                if (isAM) perVaca[a].am += val;
+                else perVaca[a].pm += val;
+                perVaca[a].count++;
+            });
+
+            if (isAM) totalAM += rowTotal; else totalPM += rowTotal;
+            totalMes += rowTotal;
+
+            const dateDisplay = r.fecha ? r.fecha.split('-').reverse().join('/') : '—';
+            const turnoIcon = isAM ? '☀️ AM' : '🌙 PM';
+            const turnoStyle = isAM
+                ? 'background: rgba(251,191,36,0.15); color:#f59e0b; font-weight:700;'
+                : 'background: rgba(99,102,241,0.15); color:#818cf8; font-weight:700;';
+
+            return `<tr>
+                <td style="font-weight:600;">${dateDisplay}</td>
+                <td><span style="${turnoStyle} padding:2px 8px; border-radius:4px; font-size:0.85rem;">${turnoIcon}</span></td>
+                ${lactantes.map(a => {
+                const val = parseFloat(litros[a]) || 0;
+                const style = val > 0 ? 'color: #4ade80; font-weight:600;' : 'color:var(--text-muted);';
+                return `<td style="${style}">${val > 0 ? val.toFixed(1) : '—'}</td>`;
+            }).join('')}
+                <td style="font-weight:700; color:var(--text-accent);">${rowTotal.toFixed(1)} L</td>
+                <td style="font-size:0.8rem; color:var(--text-muted);">${escapeHTML(r.notas || '')}</td>
+            </tr>`;
+        });
+
+        if (tbody) tbody.innerHTML = rows.join('');
+
+        // Update summary stats
+        const statEl = id => document.getElementById(id);
+        if (statEl('reg-total-am')) statEl('reg-total-am').textContent = totalAM.toFixed(1);
+        if (statEl('reg-total-pm')) statEl('reg-total-pm').textContent = totalPM.toFixed(1);
+        if (statEl('reg-total-mes')) statEl('reg-total-mes').textContent = totalMes.toFixed(1);
+        if (statEl('reg-dias-registrados')) statEl('reg-dias-registrados').textContent = registros.length;
+
+        // Render per-animal summary
+        if (perVacaTbody) {
+            perVacaTbody.innerHTML = lactantes.map(a => {
+                const data = perVaca[a] || { am: 0, pm: 0, count: 0 };
+                const total = data.am + data.pm;
+                const avg = data.count > 0 ? (total / data.count).toFixed(1) : '0.0';
+                return `<tr>
+                    <td><strong>${getAnimalEmoji(a)} ${a}</strong></td>
+                    <td style="color:#f59e0b;">${data.am.toFixed(1)}</td>
+                    <td style="color:#818cf8;">${data.pm.toFixed(1)}</td>
+                    <td style="color:#4ade80; font-weight:700;">${total.toFixed(1)}</td>
+                    <td>${avg} L</td>
+                </tr>`;
+            }).join('');
+        }
+
+        showToast(`✅ ${registros.length} registros cargados`, 'success');
+
+    } catch (e) {
+        console.error('Error loading milk records:', e);
+        // If Firestore index error, provide helpful message
+        const msg = e.message?.includes('index')
+            ? 'Se requiere crear un índice en Firebase. Verifica la consola Firebase para el link.'
+            : e.message;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="text-center" style="color:#ef4444; padding:20px;">⚠️ Error: ${escapeHTML(msg)}</td></tr>`;
+        showToast('Error al cargar registros: ' + msg, 'error');
+    }
+}
+
 
 // ─── LIMPIEZA FILAS ENCABEZADO ────────────────────────────────────────────────
 
