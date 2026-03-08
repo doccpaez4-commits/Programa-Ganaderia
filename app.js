@@ -386,6 +386,17 @@ function switchTab(tabId) {
     _doSwitchTab(tabId);
 }
 
+// Saltos Rápidos
+function goToNuevaInseminacion() {
+    switchTab('evento');
+    const selectTipo = document.getElementById('evento-tipo');
+    if (selectTipo) {
+        selectTipo.value = 'Inseminación';
+        toggleEventFields();
+    }
+    showToast('Selecciona la vaca de la lista para registrar la monta/inseminación', 'info');
+}
+
 // ─── SEGURIDAD RENTABILIDAD ──────────────────────────────────
 
 function checkRentabilidadPass() {
@@ -1046,6 +1057,7 @@ async function fetchFromSheets(accion, params = {}) {
                         filas.push(data);
                     }
                 } else {
+                    data.id = doc.id; // Asegurar que todas las demás colecciones (incluyendo gastos) tengan ID
                     filas.push(data);
                 }
             });
@@ -1338,6 +1350,7 @@ function loadGestacion(insem) {
             <td>${statusBadge}</td>
             <td>
                 <button class="btn-pamora" style="padding:4px 8px; font-size:0.75rem;" onclick="openEditInsemModal('${p.id || ''}')" title="Editar">📝</button>
+                <button class="btn btn-sm btn-outline-danger" style="padding:2px 6px; font-size:0.75rem; margin-left:4px;" onclick="eliminarGestacion('${p.id || ''}')" title="Eliminar Registro">🗑️</button>
             </td>
         </tr>`;
     });
@@ -3956,6 +3969,23 @@ async function saveEditInseminacion() {
     } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
+async function eliminarGestacion(id) {
+    if (!id || id === 'undefined' || id === 'null') return;
+    if (!confirm('¿Seguro que deseas eliminar este registro de Inseminación/Gestación?')) return;
+
+    try {
+        await db.collection('eventos').doc(id).delete();
+        showToast('Gestación eliminada correctamente 🗑️', 'success');
+
+        // Refresh Gestacion panel
+        const insemData = await fetchFromSheets('inseminaciones');
+        loadGestacion(insemData);
+        loadHistorial();
+    } catch (e) {
+        showToast('Error al eliminar: ' + e.message, 'error');
+    }
+}
+
 function openEditNacModal(id) {
     console.log('Opening edit nacim modal for ID:', id);
     if (!id || id === 'undefined' || id === 'null') {
@@ -4195,8 +4225,16 @@ async function loadMilkRecords() {
         const perVaca = {};
         lactantes.forEach(a => { perVaca[a] = { am: 0, pm: 0, count: 0 }; });
 
+        // Logic check: is the loaded month editable? (Current or Prev Month)
+        const hoy = new Date();
+        const loadedDate = new Date(anio, mes, 1);
+        const diffMonths = (hoy.getFullYear() - loadedDate.getFullYear()) * 12 + (hoy.getMonth() - loadedDate.getMonth());
+        const isEditable = diffMonths <= 1;
+
+        const saveBtn = document.getElementById('btn-save-milk-edits');
+        if (saveBtn) saveBtn.style.display = isEditable && registros.length > 0 ? 'block' : 'none';
+
         // Render rows
-        // Render rows directly
         const rows = registros.map(r => {
             const litros = r.litros || {};
             const turno = r.horario || '—';
@@ -4226,12 +4264,18 @@ async function loadMilkRecords() {
                 <td><span style="${turnoStyle} padding:2px 8px; border-radius:4px; font-size:0.85rem;">${turnoIcon}</span></td>
                 ${lactantes.map(a => {
                 const val = parseFloat(litros[a]) || 0;
-                const style = val > 0 ? 'color: #4ade80; font-weight:600;' : 'color:var(--text-muted);';
-                return `<td style="${style}">${val > 0 ? val.toFixed(1) : '—'}</td>`;
+                if (isEditable) {
+                    return `<td><input type="number" step="0.1" class="form-control milk-edit-input" data-docid="${r.id}" data-vaca="${a}" value="${val > 0 ? val : ''}" style="width:60px; padding:2px 4px; border:1px solid transparent; background:rgba(255,255,255,0.05); color:var(--text-color); font-size:1rem; text-align:center;" onchange="setDirty(true)" onfocus="this.style.border='1px solid var(--primary-color)'" onblur="this.style.border='1px solid transparent'"></td>`;
+                } else {
+                    const style = val > 0 ? 'color: #4ade80; font-weight:600;' : 'color:var(--text-muted);';
+                    return `<td style="${style}">${val > 0 ? val.toFixed(1) : '—'}</td>`;
+                }
             }).join('')}
                 <td style="font-weight:700; color:var(--text-accent);">${rowTotal.toFixed(1)} L</td>
                 <td style="font-size:0.8rem; color:var(--text-muted);">${escapeHTML(r.notas || '')} ${r.potrero ? `[${r.potrero}]` : ''}</td>
-                <td><button class="btn btn-sm btn-outline-danger" onclick="eliminarRegistroOrdeno('${r.id}')" title="Eliminar registro">🗑️</button></td>
+                <td>
+                    ${isEditable ? `<button class="btn btn-sm btn-outline-danger" onclick="eliminarRegistroOrdeno('${r.id}')" title="Eliminar registro">🗑️</button>` : `<span title="Liquidado Histórico">🔒</span>`}
+                </td>
             </tr>`;
         });
 
@@ -4277,6 +4321,47 @@ async function loadMilkRecords() {
             : e.message;
         if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="text-center" style="color:#ef4444; padding:20px;">⚠️ Error: ${escapeHTML(msg)}</td></tr>`;
         showToast('Error al cargar registros: ' + msg, 'error');
+    }
+}
+
+// ─── GUARDADO MASIVO DE ORDEÑOS (EXCEL STYLE) ─────────────────────────
+async function saveMilkEdits() {
+    const inputs = document.querySelectorAll('.milk-edit-input');
+    if (inputs.length === 0) return;
+
+    const btn = document.getElementById('btn-save-milk-edits');
+    const oriHTML = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner"></span> Guardando...';
+    btn.disabled = true;
+
+    // Build payload structure mapping by docId
+    const updates = {};
+    inputs.forEach(inp => {
+        const docId = inp.dataset.docid;
+        const vaca = inp.dataset.vaca;
+        const val = parseFloat(inp.value) || 0;
+
+        if (!updates[docId]) updates[docId] = {};
+        updates[docId][vaca] = val;
+    });
+
+    try {
+        const batch = db.batch();
+        Object.keys(updates).forEach(docId => {
+            const docRef = db.collection('produccion').doc(docId);
+            const litrosObject = updates[docId];
+            batch.set(docRef, { litros: litrosObject }, { merge: true });
+        });
+
+        await batch.commit();
+        setDirty(false); // Clean up guard state
+        showToast('Toda la tabla se actualizó correctamente ✅', 'success');
+        loadMilkRecords(); // Reload to refresh totals and stats
+    } catch (e) {
+        showToast('Error al guardar masivamente: ' + e.message, 'error');
+    } finally {
+        btn.innerHTML = oriHTML;
+        btn.disabled = false;
     }
 }
 

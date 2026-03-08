@@ -615,9 +615,17 @@
         <!-- ═══ PANEL: COSTOS ═══ -->
         <div id="panel-costos" class="tab-panel">
           <span class="back-link" onclick="switchTab('inicio')">← Volver al inicio</span>
-          <div class="section-header">
-            <h1 class="section-title">💰 Registro de Gastos</h1>
-            <p class="section-subtitle">Ingresa los costos diarios de operación</p>
+          <div class="section-header d-flex justify-content-between align-items-center">
+            <div>
+              <h1 class="section-title">💰 Registro de Gastos</h1>
+              <p class="section-subtitle">Ingresa los costos diarios de operación</p>
+            </div>
+            <div>
+              <button class="btn-pamora" onclick="switchTab('explorador')"
+                style="background-color: var(--secondary-color); color: var(--text-color);">
+                <span>🔍</span> Explorador de Costos
+              </button>
+            </div>
           </div>
 
           <div class="card-pamora form-card">
@@ -1295,8 +1303,8 @@
               <p class="section-subtitle">Monitoreo de preñeces y estimación de partos (283 días)</p>
             </div>
             <div>
-              <button class="btn-pamora" onclick="openAddAnimalModal()">
-                <span>➕</span> Agregar Vaca
+              <button class="btn-pamora" onclick="goToNuevaInseminacion()">
+                <span>➕</span> Nueva Inseminación
               </button>
             </div>
           </div>
@@ -1354,6 +1362,10 @@
               </select>
               <button class="btn-pamora" onclick="loadMilkRecords()" style="width:auto; padding:8px 16px;">🔄
                 Actualizar</button>
+              <button id="btn-save-milk-edits" class="btn-pamora" onclick="saveMilkEdits()"
+                style="width:auto; padding:8px 16px; background-color: #f59e0b; color: white; display: none;">
+                💾 Guardar Edición
+              </button>
             </div>
           </div>
 
