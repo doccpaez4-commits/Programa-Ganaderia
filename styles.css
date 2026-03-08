@@ -65,9 +65,9 @@ body {
 
 /* ─── Header & Notifications ───────────────────────────── */
 .app-header {
-  background: var(--glass-bg);
-  border-bottom: 1px solid var(--glass-border);
-  box-shadow: var(--shadow-sm);
+  background: var(--verde-pamora);
+  /* Sin border inferior para pegarse limpio al nav-tab */
+  box-shadow: none;
   padding: 12px 24px;
   display: flex;
   justify-content: space-between;
@@ -91,7 +91,7 @@ body {
 .header-brand-text {
   font-size: 1.8rem;
   font-weight: 700;
-  color: var(--verde-pamora);
+  color: var(--text-white);
   letter-spacing: -0.5px;
 }
 
@@ -198,20 +198,19 @@ body {
 }
 
 .nav-icon-btn {
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   font-size: 1.2rem;
-  color: var(--text-main);
+  color: var(--text-white);
   cursor: pointer;
   position: relative;
   transition: var(--transition);
   padding: 8px 10px;
   border-radius: 50%;
-  box-shadow: var(--shadow-sm);
 }
 
 .nav-icon-btn:hover {
-  background: var(--bg-deep);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .badge-dot {
@@ -310,7 +309,8 @@ body {
   display: flex;
   gap: 8px;
   padding: 12px 24px;
-  background: rgba(10, 15, 10, 0.4);
+  background: var(--verde-pamora);
+  border-bottom: 1px solid var(--glass-border);
   overflow-x: auto;
 }
 
@@ -319,7 +319,8 @@ body {
   border-radius: 100px;
   background: transparent;
   border: 1px solid transparent;
-  color: var(--text-muted);
+  color: #94a3b8;
+  /* Gris claro/azulado invisible pero elegante */
   font-weight: 500;
   cursor: pointer;
   transition: var(--transition);
@@ -331,13 +332,16 @@ body {
 
 .nav-tab:hover {
   color: var(--text-white);
-  background: var(--glass-bg);
+  background: rgba(255, 255, 255, 0.08);
+  /* Fondo claro translucido */
 }
 
 .nav-tab.active {
-  background: var(--primary-gradient);
+  background: rgba(255, 255, 255, 0.15);
+  /* Pastilla blanca/cristal resaltando sobre verde negro */
   color: var(--text-white);
-  box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
 }
 
 /* ─── Dashboard ────────────────────────────────────────── */
