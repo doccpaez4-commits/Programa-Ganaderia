@@ -66,8 +66,8 @@ body {
 /* ─── Header & Notifications ───────────────────────────── */
 .app-header {
   background: var(--verde-pamora);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  padding: 12px 24px 16px 24px;
+  box-shadow: none;
+  padding: 12px 24px 8px 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -85,7 +85,8 @@ body {
 .header-logo-img {
   height: 60px;
   width: auto;
-  filter: brightness(0) invert(1);
+  filter: brightness(0) invert(1) contrast(1.2);
+  opacity: 0.95;
 }
 
 .header-brand-titles {
@@ -359,10 +360,15 @@ body {
 .nav-tabs-pamora {
   display: flex;
   gap: 16px;
-  padding: 0 24px 16px 24px;
+  padding: 0 24px 20px 24px;
   background: var(--verde-pamora);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
   border-bottom: 0;
   overflow-x: auto;
+  position: sticky;
+  top: 85px;
+  /* Altura estimada del header para que peguen */
+  z-index: 999;
 }
 
 .nav-tab {
@@ -411,13 +417,13 @@ body {
 
 .dash-card {
   background: var(--glass-bg);
-  backdrop-filter: blur(10px);
   border: 1px solid var(--glass-border);
-  border-radius: var(--radius-xl);
+  border-radius: 24px;
   padding: 32px 20px;
   text-align: center;
   transition: var(--transition);
   cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
 }
 
 .dash-card:hover {
@@ -612,26 +618,73 @@ body {
 }
 
 /* Login */
+/* ─── Login Screen ───────────────────────────────────────── */
 .login-screen {
-  background: radial-gradient(circle at center, #1a2e1a 0%, #0a0f0a 100%);
+  background: var(--verde-pamora);
   display: flex;
   justify-content: center;
   align-items: center;
   height: 100vh;
+  padding: 20px;
 }
 
 .login-card {
   width: 100%;
-  max-width: 400px;
-  padding: 48px;
-  border-radius: var(--radius-xl);
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(20px);
-  border: 1px solid var(--glass-border);
+  max-width: 440px;
+  padding: 60px 48px;
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
   text-align: center;
 }
 
-/* PDF Export Button */
+.login-title {
+  color: var(--verde-pamora);
+  font-weight: 800;
+  font-size: 2.2rem;
+  margin-bottom: 8px;
+}
+
+.login-subtitle {
+  color: #6b7280;
+  font-size: 1rem;
+  margin-bottom: 32px;
+}
+
+.login-card .form-label {
+  color: #374151;
+  font-weight: 600;
+}
+
+.login-card .form-control {
+  background: #f9fafb !important;
+  border: 1.5px solid #e5e7eb !important;
+  color: #111827 !important;
+}
+
+.login-card .form-control:focus {
+  border-color: var(--verde-pamora) !important;
+  background: #ffffff !important;
+}
+
+.login-error {
+  background: #fef2f2;
+  color: #dc2626;
+  padding: 12px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  display: none;
+}
+
+.login-card .btn-pamora {
+  width: 100%;
+  padding: 16px;
+  font-size: 1.1rem;
+  margin-top: 10px;
+}
+
 .btn-export {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 100px;

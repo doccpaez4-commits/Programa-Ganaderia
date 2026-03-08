@@ -2685,7 +2685,8 @@ function renderRentabilidad() {
     const gastosCats = {
         'Concentrado': parseFloat(totalCostoConcentradoAudit.toFixed(0)),
         'Mantenimiento': parseFloat((countNoProd * mantOtros).toFixed(0)),
-        'Terneras': parseFloat(costTerneras.toFixed(0))
+        'Terneras': parseFloat(costTerneras.toFixed(0)),
+        'Otros (Manuales)': parseFloat((data._gastosMes || 0).toFixed(0))
     };
     // Filter out zero categories to keep the chart clean
     const filteredCats = Object.fromEntries(Object.entries(gastosCats).filter(([, v]) => v > 0));
@@ -2856,22 +2857,29 @@ function buildProduccionAnimalChart(data) {
 
     const labels = ANIMALES;
     const totals = ANIMALES.map(a => data.produccionPorAnimal?.[a]?.total || 0);
-    const colors = ['#4ade80', '#22c55e', '#16a34a', '#15803d', '#86efac', '#6fbf3a', '#5a9a30', '#3a6a1e'];
+    const colors = ['#10b981', '#34d399', '#059669', '#047857', '#6ee7b7', '#a7f3d0', '#d1fae5'];
 
     ctx._chart = new Chart(ctx, {
         type: 'bar',
         data: {
             labels,
             datasets: [{
-                label: 'Total litros',
+                label: 'Litros / Mes',
                 data: totals,
-                backgroundColor: colors.map(c => c + '90'),
+                backgroundColor: colors.map(c => c + 'cc'),
                 borderColor: colors,
                 borderWidth: 1,
-                borderRadius: 6
+                borderRadius: 8,
+                barThickness: 25
             }]
         },
-        options: chartOptions('Litros')
+        options: {
+            ...chartOptions('Litros'),
+            plugins: {
+                legend: { display: false },
+                tooltip: tooltipStyle()
+            }
+        }
     });
 }
 
@@ -2903,21 +2911,24 @@ function buildCostoVsVentaChart(data) {
                     label: 'Costo / Litro',
                     data: costoData,
                     borderColor: '#f59e0b',
-                    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                    backgroundColor: 'rgba(245, 158, 11, 0.15)',
                     fill: true,
-                    tension: 0.3,
-                    borderWidth: 2,
-                    pointRadius: 2
+                    tension: 0.4,
+                    borderWidth: 3,
+                    pointRadius: 4,
+                    pointBackgroundColor: '#ffffff',
+                    pointBorderColor: '#f59e0b',
+                    pointBorderWidth: 2
                 },
                 {
                     label: 'Precio Venta',
                     data: ventaData,
-                    borderColor: '#4ade80',
-                    backgroundColor: 'rgba(74, 222, 128, 0.08)',
-                    fill: true,
+                    borderColor: '#10b981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.05)',
+                    fill: false,
                     tension: 0,
-                    borderWidth: 2,
-                    borderDash: [6, 3],
+                    borderWidth: 3,
+                    borderDash: [10, 5],
                     pointRadius: 0
                 }
             ]
@@ -2942,7 +2953,8 @@ function buildGastosCategoriaChart(data) {
 
     const categorias = Object.keys(data.porCategoria || {});
     const montos = categorias.map(c => data.porCategoria[c]);
-    const categColors = ['#4ade80', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
+    // Modern palette for expenses
+    const categColors = ['#10b981', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
 
     ctx._chart = new Chart(ctx, {
         type: 'doughnut',
@@ -2950,20 +2962,38 @@ function buildGastosCategoriaChart(data) {
             labels: categorias,
             datasets: [{
                 data: montos,
-                backgroundColor: categColors.slice(0, categorias.length).map(c => c + 'cc'),
-                borderColor: categColors.slice(0, categorias.length),
-                borderWidth: 1
+                backgroundColor: categColors.slice(0, categorias.length).map(c => c + 'dd'),
+                borderColor: '#ffffff',
+                borderWidth: 2,
+                hoverOffset: 12
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            cutout: '70%',
             plugins: {
                 legend: {
-                    position: 'right',
-                    labels: { color: '#9ca3af', font: { size: 11 }, padding: 10 }
+                    position: 'bottom',
+                    labels: {
+                        color: '#4b5563',
+                        font: { size: 12, weight: '600' },
+                        padding: 20,
+                        usePointStyle: true,
+                        pointStyle: 'circle'
+                    }
                 },
-                tooltip: tooltipStyle()
+                tooltip: {
+                    ...tooltipStyle(),
+                    callbacks: {
+                        label: function (item) {
+                            const val = item.raw;
+                            const total = item.dataset.data.reduce((a, b) => a + b, 0);
+                            const pct = ((val / total) * 100).toFixed(1);
+                            return `${item.label}: $${formatNumber(val)} (${pct}%)`;
+                        }
+                    }
+                }
             }
         }
     });
@@ -2973,20 +3003,20 @@ function chartOptions(yLabel) {
     return {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: {
-            legend: { display: false },
-            tooltip: tooltipStyle()
-        },
         scales: {
             x: {
                 grid: { display: false },
-                ticks: { color: '#6b7280', font: { size: 10 } }
+                ticks: { color: '#6b7280', font: { size: 11, weight: '500' } }
             },
             y: {
-                grid: { color: 'rgba(90, 154, 48, 0.1)' },
-                ticks: { color: '#6b7280', font: { size: 10 } },
+                grid: { color: '#f1f5f9' },
+                ticks: {
+                    color: '#6b7280',
+                    font: { size: 10 },
+                    callback: function (value) { return value >= 1000 ? '$' + formatNumber(value) : value; }
+                },
                 beginAtZero: true,
-                title: { display: !!yLabel, text: yLabel, color: '#9ca3af', font: { size: 10 } }
+                border: { dash: [4, 4] }
             }
         }
     };
