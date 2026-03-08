@@ -483,10 +483,18 @@ function _doSwitchTab(tabId) {
     // Load data for specific tabs
     if (tabId === 'inicio') loadDashboardStats();
     if (tabId === 'ordeno') {
-        const lastPotrero = localStorage.getItem('last_ordeno_potrero');
-        if (lastPotrero) {
-            const potreroInput = document.getElementById('ordeno-potrero');
-            if (potreroInput) potreroInput.value = lastPotrero;
+        const potreroInput = document.getElementById('ordeno-potrero');
+        if (potreroInput && db) {
+            // Obtenemos el registro más joven de producción
+            db.collection('produccion').orderBy('fecha', 'desc').limit(1).get()
+                .then(snapshot => {
+                    if (!snapshot.empty) {
+                        const ultimoReg = snapshot.docs[0].data();
+                        if (ultimoReg.potrero && ultimoReg.potrero !== 'Sin Especificar') {
+                            potreroInput.value = ultimoReg.potrero;
+                        }
+                    }
+                }).catch(err => console.warn('No se pudo recuperar último potrero: ', err));
         }
     }
     if (tabId === 'rentabilidad') loadRentabilidad();
@@ -1109,11 +1117,13 @@ async function fetchFromSheets(accion, params = {}) {
                 // If it's the events collection, filter by the requested event type
                 if (coll === 'eventos') {
                     const tipoMap = {
-                        'inseminaciones': 'Inseminación',
-                        'nacimientos': 'Nacimiento',
-                        'celos': 'Celo'
+                        'inseminaciones': ['Inseminación', 'inseminacion'],
+                        'nacimientos': ['Nacimiento', 'nacimiento'],
+                        'celos': ['Celo', 'celo']
                     };
-                    if (data.tipo === tipoMap[accion]) {
+
+                    const validTypes = tipoMap[accion] || [];
+                    if (validTypes.includes(data.tipo)) {
                         data.id = doc.id;
                         filas.push(data);
                     }
@@ -3444,7 +3454,7 @@ function showToast(message, type = 'info') {
         toast.style.boxShadow = '0 10px 25px rgba(0,0,0,0.4)';
     }
 
-    toast.innerHTML = `<span>${icons[type]}</span> <span>${message}</span>`;
+    toast.innerHTML = `<span>${icons[type] || ''}</span> <span style="margin-left:8px;">${message}</span>`;
     container.appendChild(toast);
     setTimeout(() => {
         toast.classList.add('toast-exit');
@@ -4067,12 +4077,16 @@ async function eliminarGestacion(id) {
         await db.collection('eventos').doc(id).delete();
         showToast('Gestación eliminada correctamente 🗑️', 'success');
 
-        // Refresh Gestacion panel with a delay to evade immediate network caching in FireStore
+        // Eliminar fila limpia instantáneamente para no depender del retraso asíncrono y evitar ghosting visual
+        const filaToRemove = document.getElementById(`gestacion-${id}`);
+        if (filaToRemove) filaToRemove.remove();
+
+        // Refresh panel silently in background just to be safe
         setTimeout(async () => {
             const insemData = await fetchFromSheets('inseminaciones');
             loadGestacion(insemData);
             loadHistorial();
-        }, 600);
+        }, 1200);
     } catch (e) {
         showToast('Error al eliminar: ' + e.message, 'error');
     }

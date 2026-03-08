@@ -383,8 +383,8 @@ body::before {
 }
 
 .dash-card-icon {
-  font-size: 3rem;
-  margin-bottom: 16px;
+  font-size: 2.2rem;
+  margin-bottom: 8px;
   display: block;
 }
 
@@ -400,16 +400,26 @@ body::before {
 }
 
 /* ─── Stats & Forms ─────────────────────────────────────── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
 .stat-card {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
-  padding: 24px;
+  padding: 16px 20px;
   transition: var(--transition);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .stat-value {
-  font-size: 2rem;
+  font-size: 1.6rem;
   font-weight: 800;
   background: var(--primary-gradient);
   -webkit-background-clip: text;
