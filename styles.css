@@ -5,65 +5,69 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
 
 :root {
-  /* Liquid Glass Palette */
-  --glass-bg: rgba(255, 255, 255, 0.08);
-  --glass-border: rgba(255, 255, 255, 0.15);
-  --glass-glow: rgba(74, 222, 128, 0.25);
+  /* Pamora SaaS Palette - Light Clean */
+  --verde-pamora: #061504;
+  /* Dark green brand */
+  --primary-color: #22c55e;
+  --secondary-color: #f9fafb;
+  /* App Background */
+  --terracota: #e17055;
+  --glass-bg: #ffffff;
+  /* Replaces dark translucent cards */
+  --glass-border: #e2e8f0;
 
-  --primary-gradient: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
-  --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  --danger-gradient: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+  --primary-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  --accent-gradient: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  --danger-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
 
-  --verde-900: #061504;
-  --bg-deep: #0a0f0a;
+  --bg-deep: #f8fafc;
+  /* Very light slate background */
+  --text-main: #0f172a;
+  /* Slate 900 for dark mode contrast */
   --text-white: #ffffff;
-  --text-muted: #94a3b8;
+  --text-muted: #64748b;
+  /* Slate 500 */
+  --text-accent: #22c55e;
 
-  --radius-xl: 24px;
+  --radius-xl: 20px;
   --radius-lg: 16px;
-  --radius-md: 12px;
+  --radius-md: 10px;
 
-  --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.03);
+
+  --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ─── Base ──────────────────────────────────────────────── */
 body {
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Outfit', 'Inter', sans-serif;
   background: var(--bg-deep);
-  color: var(--text-white);
+  color: var(--text-main);
+  /* Dark text */
   min-height: 100vh;
   margin: 0;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background:
-    radial-gradient(circle at 10% 20%, rgba(74, 222, 128, 0.1) 0%, transparent 40%),
-    radial-gradient(circle at 90% 80%, rgba(59, 130, 246, 0.1) 0%, transparent 40%),
-    radial-gradient(circle at 50% 50%, rgba(34, 197, 94, 0.05) 0%, transparent 60%);
-  pointer-events: none;
-  z-index: -1;
-}
-
-/* ─── Glass Elements ────────────────────────────────────── */
-.glass-effect {
+/* ─── Cards & Containers (No more dark glass) ───────────── */
+.glass-effect,
+.card-pamora,
+.dash-card,
+.stat-card {
   background: var(--glass-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  box-shadow: var(--shadow-md);
+  border-radius: var(--radius-lg);
 }
 
 /* ─── Header & Notifications ───────────────────────────── */
 .app-header {
-  background: #0a0f0a;
-  /* Unified solid background to match logo */
-  backdrop-filter: blur(20px);
+  background: var(--glass-bg);
   border-bottom: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-sm);
   padding: 12px 24px;
   display: flex;
   justify-content: space-between;
@@ -80,59 +84,41 @@ body::before {
 }
 
 .header-brand-icon {
-  font-size: 2.8rem;
-  filter: drop-shadow(0 0 10px var(--glass-glow));
+  font-size: 2.2rem;
+  /* Logo filter removed to keep it solid */
 }
 
 .header-brand-text {
-  font-size: 2.2rem;
-  font-weight: 800;
-  background: linear-gradient(135deg, #ffffff 0%, #4ade80 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  letter-spacing: -1.5px;
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--verde-pamora);
+  letter-spacing: -0.5px;
 }
 
 @media (max-width: 768px) {
   .header-brand-text {
-    font-size: 1.6rem;
-  }
-
-  .header-brand-icon {
-    font-size: 2rem;
-  }
-
-  .app-header {
-    padding: 12px 16px;
+    font-size: 1.4rem;
   }
 }
 
 .header-user {
   display: flex;
   align-items: center;
-  gap: 24px;
-}
-
-/* ─── Glass Elements Enhancements ───────────────────────── */
-.glass-effect,
-.card-pamora,
-.dash-card {
-  background: rgba(20, 30, 20, 0.7);
-  /* More opaque for text readability */
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  gap: 16px;
 }
 
 .dash-card-title {
-  color: #ffffff;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  color: var(--text-main);
+  text-shadow: none;
+  font-weight: 600;
 }
 
 .form-label {
-  color: #e2e8f0;
+  color: var(--text-main);
   font-weight: 600;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 1);
+  text-shadow: none;
+  font-size: 0.95rem;
+  margin-bottom: 6px;
 }
 
 /* Responsiveness Tables */
@@ -212,19 +198,20 @@ body::before {
 }
 
 .nav-icon-btn {
-  background: none;
-  border: none;
-  font-size: 1.4rem;
-  color: var(--text-white);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  font-size: 1.2rem;
+  color: var(--text-main);
   cursor: pointer;
   position: relative;
   transition: var(--transition);
-  padding: 8px;
+  padding: 8px 10px;
   border-radius: 50%;
+  box-shadow: var(--shadow-sm);
 }
 
 .nav-icon-btn:hover {
-  background: var(--glass-bg);
+  background: var(--bg-deep);
 }
 
 .badge-dot {
@@ -438,23 +425,22 @@ body::before {
 
 .form-control,
 .form-select {
-  background: rgba(255, 255, 255, 0.95) !important;
-  /* White for max contrast */
-  border: 2px solid #4ade80 !important;
-  /* Clear green border */
-  color: #061504 !important;
-  /* Dark green text */
+  background: var(--glass-bg) !important;
+  border: 1px solid #cbd5e1 !important;
+  /* light gray border */
+  color: var(--text-main) !important;
   border-radius: var(--radius-md) !important;
-  padding: 14px 18px !important;
-  font-weight: 500;
+  padding: 12px 16px !important;
+  font-weight: 400;
   transition: var(--transition);
+  box-shadow: var(--shadow-sm);
 }
 
 .form-control:focus,
 .form-select:focus {
   background: #ffffff !important;
-  border-color: #22c55e !important;
-  box-shadow: 0 0 15px rgba(34, 197, 94, 0.4) !important;
+  border-color: var(--primary-color) !important;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15) !important;
   outline: none;
 }
 
@@ -478,9 +464,14 @@ body::before {
 /* ─── Toasts & Utility ──────────────────────────────────── */
 .toast-container {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
 }
 
 .hidden {

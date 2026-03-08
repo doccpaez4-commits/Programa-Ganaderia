@@ -193,13 +193,13 @@ function initFormListeners() {
     const excludedIds = ['search-animal', 'registros-mes', 'registros-anio', 'rentabilidad-mes', 'rentabilidad-anio', 'evento-tipo'];
 
     document.addEventListener('input', (e) => {
-        // Ignore search bars or specific filters if they don't count as "unsaved record data"
-        if (excludedIds.includes(e.target.id) || e.target.classList.contains('no-dirty')) return;
+        // Ignore search bars, specific filters, or explicitly marked inputs via dot class
+        if (e.target.id.includes('search') || excludedIds.includes(e.target.id) || e.target.classList.contains('no-dirty')) return;
         setDirty(true);
     });
 
     document.addEventListener('change', (e) => {
-        if (excludedIds.includes(e.target.id) || e.target.classList.contains('no-dirty')) return;
+        if (e.target.id.includes('search') || excludedIds.includes(e.target.id) || e.target.classList.contains('no-dirty')) return;
         setDirty(true);
     });
 
