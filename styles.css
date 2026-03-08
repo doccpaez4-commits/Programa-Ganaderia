@@ -903,13 +903,14 @@ body {
 }
 
 .modal-pamora-content {
-  background: #0a0f0a;
+  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-xl);
   padding: 32px;
   width: 90%;
   max-width: 600px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  color: var(--text-main);
 }
 
 /* ─── Dashboard Updates Box ────────────────────────────── */

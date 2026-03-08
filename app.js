@@ -241,12 +241,10 @@ async function bootApp(userName) {
     loadNotificationsFromFirebase();
     checkPartoAlerts();
 
-    // AUTOMATIC SEEDING (Duplicate Prevention Included)
+    // AUTOMATIC SEEDING DISABLED: Prevented ghosting of deleted records
     if (db) {
-        updateSyncProgress(90, 'Verificando historiales...');
-        await seedVacunaciones(true);
-        await seedInseminaciones(true);
-        await seedNacimientos(true);
+        updateSyncProgress(90, 'Cargando registros recientes...');
+        // Manual seeding should be used instead if needed.
     }
 
     updateSyncProgress(100, 'Sincronización terminada ✅');
@@ -1208,16 +1206,34 @@ async function loadDashboardStats() {
     const vac = await fetchFromSheets('vacunaciones');
 
     let totalMes = 0;
-    if (prod?.filas) prod.filas.forEach(f => { totalMes += f.total || 0; });
+    let diasUnicos = new Set();
 
-    const dias = prod?.filas?.length || 1;
+    if (prod?.filas) {
+        prod.filas.forEach(f => {
+            totalMes += f.total || 0;
+            if (f.fecha) diasUnicos.add(f.fecha);
+        });
+    }
+
+    const dias = diasUnicos.size > 0 ? diasUnicos.size : 1;
     setStatText('stat-total-litros', totalMes.toFixed(0));
     setStatText('stat-promedio', (totalMes / dias).toFixed(1));
     const activeAnimals = (currentHerdCenso || []).filter(a => a.status !== 'Retirado');
     setStatText('stat-animales', activeAnimals.length > 0 ? activeAnimals.length : ANIMALES.length);
 
     let prenadas = 0;
-    if (insem?.filas) prenadas = insem.filas.filter(f => f.estado === 'Preñada').length;
+    if (insem?.filas) {
+        const latestInsem = {};
+        insem.filas.forEach(f => {
+            if (!f.animal || !f.fecha) return;
+            const d = new Date(f.fecha);
+            if (isNaN(d)) return;
+            if (!latestInsem[f.animal] || d > new Date(latestInsem[f.animal].fecha)) {
+                latestInsem[f.animal] = f;
+            }
+        });
+        prenadas = Object.values(latestInsem).filter(f => f.estado === 'Preñada').length;
+    }
     setStatText('stat-prenadas', prenadas);
 
     loadGestacion(insem);
@@ -1599,6 +1615,15 @@ async function exportarReportePDF() {
             const toHide = document.querySelectorAll('.btn-pamora, .section-header select, .section-header button');
             toHide.forEach(el => el.style.visibility = 'hidden');
 
+            // Critical CSS override to prevent cutting off long analysis text
+            const ogHeight = reportContainer.style.height;
+            const ogOverflow = reportContainer.style.overflow;
+            const ogMaxHeight = reportContainer.style.maxHeight;
+
+            reportContainer.style.height = 'auto';
+            reportContainer.style.maxHeight = 'none';
+            reportContainer.style.overflow = 'visible';
+
             try {
                 // Ensure charts are rendered with high quality and a white background for printing (saves ink and looks cleaner)
                 const canvas = await html2canvas(reportContainer, {
@@ -1606,8 +1631,9 @@ async function exportarReportePDF() {
                     scale: 2, // Higher resolution
                     useCORS: true,
                     logging: false,
+                    scrollY: -window.scrollY, // Prevent cutoff from scrolling
                     windowWidth: document.documentElement.offsetWidth,
-                    windowHeight: document.documentElement.offsetHeight
+                    windowHeight: reportContainer.scrollHeight + 100 // Force canvas to see everything
                 });
 
                 const imgData = canvas.toDataURL('image/jpeg', 0.95);
@@ -1631,7 +1657,11 @@ async function exportarReportePDF() {
                 console.error('Error capturing charts for PDF:', canvasErr);
             }
 
+            // Restore elements and scroll
             toHide.forEach(el => el.style.visibility = 'visible');
+            reportContainer.style.height = ogHeight;
+            reportContainer.style.overflow = ogOverflow;
+            reportContainer.style.maxHeight = ogMaxHeight;
         }
 
         pdf.save(`PaMora_Rentabilidad_${mesNombre}_${anio}.pdf`);
@@ -2233,8 +2263,8 @@ async function saveNewAnimal() {
 }
 
 function openRemoveAnimalModal(name) {
-    if (!confirm(`¿Está seguro que desea retirar a ${name} del censo activo?`)) return;
-    removeAnimal(name);
+    if (!name) return;
+    requestQuickDelete('hato_detalle', getAnimalDocId(name), `Retirar animal: ${name}`);
 }
 
 async function removeAnimal(name) {
@@ -2423,7 +2453,7 @@ function closeDeleteModal() {
 
 async function executeFinalDelete() {
     const input = document.getElementById('delete-confirm-input').value;
-    if (input !== 'ELIMINAR') {
+    if (input.trim().toUpperCase() !== 'ELIMINAR') {
         showToast('Debe escribir ELIMINAR para confirmar', 'warning');
         return;
     }
@@ -2434,13 +2464,21 @@ async function executeFinalDelete() {
         const { col, id } = pendingDeleteData;
         await db.collection(col).doc(id).delete();
 
-        showToast('Registro eliminado permanentemente 🗑️', 'success');
+        showToast('Registro eliminado 🗑️', 'success');
         closeDeleteModal();
-        // Refresh relevant sections based on the deleted collection
-        if (col === 'eventos') loadEventExplorer();
-        if (col === 'ordenos' || col === 'gastos') loadDashboardStats();
-        // If there's an admin activity panel, it would be refreshed here too.
-        // For now, we assume the explorer is the primary view.
+
+        // Refresh relevant sections automatically
+        loadVacunaciones();
+        loadHistorial();
+        loadDashboardStats();
+        if (typeof loadGestacion === 'function') {
+            const insemData = await fetchFromSheets('inseminaciones');
+            loadGestacion(insemData);
+        }
+        if (col === 'eventos' || col === 'gastos' || col === 'ordenos' || col === 'produccion') {
+            loadRentabilidad();
+            loadEventExplorer();
+        }
 
     } catch (e) {
         console.error('Delete error:', e);
@@ -2661,12 +2699,15 @@ function renderRentabilidad() {
     const vTexto = document.getElementById('veredicto-texto');
     let color = "#ef4444", status = "CRÍTICO", emoji = "🔴";
 
-    if (missingCows.length > 0) {
-        color = "#94a3b8"; status = "BLOQUEADO"; emoji = "🔒";
-    } else if (margenAudit > 25) {
+    if (margenAudit > 25) {
         color = "#22c55e"; status = "ÓPTIMO"; emoji = "🟢";
     } else if (margenAudit >= 5) {
         color = "#eab308"; status = "ADECUADO"; emoji = "🟡";
+    }
+
+    // Convert hard lock into a warning to allow the user to read the rest of the report
+    if (missingCows.length > 0) {
+        color = "#f59e0b"; status = "INFO INCOMPLETA"; emoji = "⚠️";
     }
 
     if (semaforo) { semaforo.style.background = color; semaforo.textContent = emoji; }
@@ -3286,39 +3327,7 @@ function filterExplorer() {
     }).join('');
 }
 
-function requestQuickDelete(col, id, label) {
-    if (!id) {
-        showToast('No se puede eliminar este registro (ID faltante)', 'warning');
-        return;
-    }
-    const double = confirm(`⚠️ ¿Desea eliminar definitivamente el registro de [${label}]?`);
-    if (double) {
-        executeFinalDelete(col, id);
-    }
-}
 
-async function executeFinalDelete(col, id) {
-    if (!db) return;
-    try {
-        await db.collection(col).doc(id).delete();
-        showToast('Registro eliminado 🗑️', 'success');
-
-        // Refresh EVERYTHING relevant automatically
-        loadVacunaciones();
-        loadHistorial();
-        loadDashboardStats();
-        if (typeof loadGestation === 'function') {
-            const insemData = await fetchFromSheets('inseminaciones');
-            loadGestacion(insemData);
-        }
-        if (col === 'eventos' || col === 'gastos' || col === 'ordenos') {
-            loadRentabilidad();
-        }
-    } catch (e) {
-        console.error('Delete error:', e);
-        showToast('Error al eliminar', 'error');
-    }
-}
 
 // ─── DEMO DATA ──────────────────────────────────────────────
 
@@ -3736,19 +3745,7 @@ async function loadCostosExplorer() {
 }
 
 async function eliminarGastoExplorer(id) {
-    if (!id || id === 'undefined' || id === 'null') {
-        showToast('Error de sistema: Este registro no tiene ID asignado.', 'error');
-        return;
-    }
-    if (!confirm('¿Estás seguro de que deseas eliminar este gasto? Esta acción no se puede deshacer.')) return;
-
-    try {
-        await db.collection('gastos').doc(id).delete();
-        showToast('Gasto eliminado exitosamente ✅', 'success');
-        loadCostosExplorer();
-    } catch (e) {
-        showToast('Error al eliminar: ' + e.message, 'error');
-    }
+    requestQuickDelete('gastos', id, 'Gasto Reportado');
 }
 
 async function handleVacunacion(btn) {
@@ -4094,32 +4091,16 @@ async function saveEditInseminacion() {
 
         // Comprehensive refresh for Gestacion panel
         const insemData = await fetchFromSheets('inseminaciones');
-        loadGestacion(insemData);
+        if (typeof loadGestacion === 'function') { // Corrected typeof check
+            loadGestacion(insemData);
+        }
 
     } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 async function eliminarGestacion(id) {
     if (!id || id === 'undefined' || id === 'null') return;
-    if (!confirm('¿Seguro que deseas eliminar este registro de Inseminación/Gestación?')) return;
-
-    try {
-        await db.collection('eventos').doc(id).delete();
-        showToast('Gestación eliminada correctamente 🗑️', 'success');
-
-        // Eliminar fila limpia instantáneamente para no depender del retraso asíncrono y evitar ghosting visual
-        const filaToRemove = document.getElementById(`gestacion-${id}`);
-        if (filaToRemove) filaToRemove.remove();
-
-        // Refresh panel silently in background just to be safe
-        setTimeout(async () => {
-            const insemData = await fetchFromSheets('inseminaciones');
-            loadGestacion(insemData);
-            loadHistorial();
-        }, 1200);
-    } catch (e) {
-        showToast('Error al eliminar: ' + e.message, 'error');
-    }
+    requestQuickDelete('eventos', id, 'Registro de Gestación/Insem.');
 }
 
 function openEditNacModal(id) {
@@ -4442,7 +4423,7 @@ async function loadMilkRecords() {
                 <td style="font-weight:700; color:var(--text-accent);">${rowTotal.toFixed(1)} L</td>
                 <td style="font-size:0.8rem; color:var(--text-muted);">${escapeHTML(r.notas || '')} ${r.potrero ? `[${r.potrero}]` : ''}</td>
                 <td>
-                    ${isExcel && !r.id.startsWith('virtual_') ? `<button class="btn btn-sm btn-outline-danger" onclick="eliminarRegistroOrdeno('${r.id}')" title="Eliminar registro">🗑️</button>` : (!isExcel && isEditable ? `<button class="btn btn-sm btn-outline-danger" onclick="eliminarRegistroOrdeno('${r.id}')" title="Eliminar registro">🗑️</button>` : `<span title="Liquidado Histórico">🔒</span>`)}
+                    ${isExcel && !r.id.startsWith('virtual_') ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteOrdeno('${r.id}')" title="Eliminar registro">🗑️</button>` : (!isExcel && isEditable ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteOrdeno('${r.id}')" title="Eliminar registro">🗑️</button>` : `<span title="Liquidado Histórico">🔒</span>`)}
                 </td>
             </tr>`;
         });
@@ -4632,26 +4613,12 @@ function actualizarBodega() {
 }
 
 // ─── ELIMINAR REGISTROS DE ORDEÑO ───────────────────────────────────────────
-async function eliminarRegistroOrdeno(id) {
-    if (!confirm('¿Estás seguro de que deseas eliminar este registro de ordeño? Esto afectará los totales de producción mensual.')) {
-        return;
-    }
-
-    if (!db) {
-        showToast('Base de datos no disponible', 'error');
-        return;
-    }
-
-    try {
-        await db.collection('produccion').doc(id).delete();
-        showToast('Registro de ordeño eliminado exitosamente', 'success');
-        // Refrescar la tabla actual
-        loadMilkRecords();
-    } catch (e) {
-        console.error('Error deleting record:', e);
-        showToast('Hubo un error al eliminar el registro: ' + e.message, 'error');
-    }
+async function deleteOrdeno(id) {
+    if (!id) return;
+    requestQuickDelete('produccion', id, 'Registro de Ordeño');
 }
+
+// ELIMINAR ANIMAL DEL HATO centralizado en nav superior
 
 // ─── GRÁFICO DE POTREROS (Rentabilidad) ─────────────────────────────────────
 let chartPotreroInstance = null;
