@@ -1362,6 +1362,10 @@
               </select>
               <button class="btn-pamora" onclick="loadMilkRecords()" style="width:auto; padding:8px 16px;">🔄
                 Actualizar</button>
+              <button id="btn-edit-milk-month" class="btn-pamora" onclick="enableExcelMode()"
+                style="width:auto; padding:8px 16px; background-color: var(--primary-color); color: white;">
+                ✏️ Editar Mes
+              </button>
               <button id="btn-save-milk-edits" class="btn-pamora" onclick="saveMilkEdits()"
                 style="width:auto; padding:8px 16px; background-color: #f59e0b; color: white; display: none;">
                 💾 Guardar Edición
@@ -1715,7 +1719,7 @@
       <div class="row g-2 mb-2">
         <div class="col-6">
           <label class="form-label">Fecha Inseminación</label>
-          <input type="date" id="edit-insem-fecha" class="form-control">
+          <input type="date" id="edit-insem-fecha" class="form-control" onchange="autoCalcInsemParto()">
         </div>
         <div class="col-6">
           <label class="form-label">Animal</label>
@@ -1725,7 +1729,8 @@
       <div class="row g-2 mb-2">
         <div class="col-6">
           <label class="form-label">Resultado</label>
-          <select id="edit-insem-estado" class="form-select">
+          <select id="edit-insem-estado" class="form-select"
+            onchange="if(this.value==='No Preñada'){ document.getElementById('edit-insem-parto').value=''; }">
             <option value="Pendiente">⏳ Pendiente diagnóstico</option>
             <option value="Preñada">✅ Preñada</option>
             <option value="No Preñada">❌ No Preñada</option>
@@ -1743,7 +1748,7 @@
         </div>
         <div class="col-6">
           <label class="form-label">Fecha Est. Parto</label>
-          <input type="text" id="edit-insem-parto" class="form-control" placeholder="Ej: 15/09/2026">
+          <input type="date" id="edit-insem-parto" class="form-control">
         </div>
       </div>
       <div class="mb-3">

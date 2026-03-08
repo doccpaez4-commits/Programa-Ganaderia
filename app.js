@@ -388,13 +388,52 @@ function switchTab(tabId) {
 
 // Saltos Rápidos
 function goToNuevaInseminacion() {
-    switchTab('evento');
+    switchTab('eventos');
     const selectTipo = document.getElementById('evento-tipo');
     if (selectTipo) {
         selectTipo.value = 'Inseminación';
         toggleEventFields();
+        switchEventoType('Inseminación');
     }
     showToast('Selecciona la vaca de la lista para registrar la monta/inseminación', 'info');
+}
+
+async function calcEditParto(partoId) {
+    const parto = await db.collection('partos').doc(partoId).get();
+    if (!parto.exists) {
+        showToast('Parto no encontrado', 'error');
+        return;
+    }
+    const data = parto.data();
+    const animal = data.animal;
+    const fechaParto = data.fecha;
+
+    // Calculate next insemination date
+    const nextInseminacionDate = new Date(fechaParto);
+    nextInseminacionDate.setDate(nextInseminacionDate.getDate() + 60); // 60 days post-partum
+    const nextInseminacionDateStr = nextInseminacionDate.toISOString().split('T')[0];
+
+    // Calculate next dry-off date
+    const nextSecadoDate = new Date(fechaParto);
+    nextSecadoDate.setDate(nextSecadoDate.getDate() + 220); // 220 days post-partum
+    const nextSecadoDateStr = nextSecadoDate.toISOString().split('T')[0];
+
+    // Calculate next calving date
+    const nextPartoDate = new Date(fechaParto);
+    nextPartoDate.setDate(nextPartoDate.getDate() + 300); // 300 days post-partum
+    const nextPartoDateStr = nextPartoDate.toISOString().split('T')[0];
+
+    // Update animal in censo
+    const animalRef = db.collection('animales').doc(animal);
+    await animalRef.update({
+        'proximo_servicio': nextInseminacionDateStr,
+        'proximo_secado': nextSecadoDateStr,
+        'proximo_parto': nextPartoDateStr,
+        'estado': 'LACTANDO 🥛'
+    });
+
+    showToast(`Fechas de ${animal} actualizadas: Próximo Servicio: ${formatDate(nextInseminacionDateStr)}, Próximo Secado: ${formatDate(nextSecadoDateStr)}, Próximo Parto: ${formatDate(nextPartoDateStr)}`, 'success');
+    loadHerdInventory(); // Refresh inventory to show updated status
 }
 
 // ─── SEGURIDAD RENTABILIDAD ──────────────────────────────────
@@ -3623,6 +3662,10 @@ async function loadCostosExplorer() {
 }
 
 async function eliminarGastoExplorer(id) {
+    if (!id || id === 'undefined' || id === 'null') {
+        showToast('Error de sistema: Este registro no tiene ID asignado.', 'error');
+        return;
+    }
     if (!confirm('¿Estás seguro de que deseas eliminar este gasto? Esta acción no se puede deshacer.')) return;
 
     try {
@@ -3942,6 +3985,19 @@ function closeEditInsemModal() {
     document.getElementById('modal-edit-inseminacion').style.display = 'none';
 }
 
+function autoCalcInsemParto() {
+    const fechaInsemInput = document.getElementById('edit-insem-fecha');
+    const partoInput = document.getElementById('edit-insem-parto');
+    if (fechaInsemInput && fechaInsemInput.value && partoInput) {
+        const insemDate = new Date(fechaInsemInput.value + 'T12:00:00');
+        insemDate.setDate(insemDate.getDate() + 283);
+        const y = insemDate.getFullYear();
+        const m = String(insemDate.getMonth() + 1).padStart(2, '0');
+        const d = String(insemDate.getDate()).padStart(2, '0');
+        partoInput.value = `${y}-${m}-${d}`;
+    }
+}
+
 async function saveEditInseminacion() {
     const id = document.getElementById('edit-insem-id').value;
     const data = {
@@ -4180,7 +4236,14 @@ async function loadMilkRecords() {
             .orderBy('fecha', 'asc')
             .get();
 
-        if (snapshot.empty) {
+        // Logic check: is the loaded month editable? (Current or Prev Month)
+        const hoy = new Date();
+        const loadedDate = new Date(anio, mes, 1);
+        const diffMonths = (hoy.getFullYear() - loadedDate.getFullYear()) * 12 + (hoy.getMonth() - loadedDate.getMonth());
+        const isEditable = diffMonths <= 1;
+        const isExcel = isEditable && isExcelModeActive;
+
+        if (snapshot.empty && !isExcel) {
             if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="text-center" style="padding:40px; color:var(--text-muted);">📭 No hay registros para ${MESES_NOMBRES[mes]} ${anio}.<br><small>Registra ordeños desde la pestaña "Ordeño".</small></td></tr>`;
             if (perVacaTbody) perVacaTbody.innerHTML = '<tr><td colspan="5" class="text-center" style="padding:20px; color:var(--text-muted);">Sin datos</td></tr>';
             // Reset stats
@@ -4188,11 +4251,38 @@ async function loadMilkRecords() {
                 const el = document.getElementById(id);
                 if (el) el.textContent = '0';
             });
+            const editBtn = document.getElementById('btn-edit-milk-month');
+            if (editBtn) editBtn.style.display = isEditable ? 'block' : 'none';
+            const saveBtn = document.getElementById('btn-save-milk-edits');
+            if (saveBtn) saveBtn.style.display = 'none';
             return;
         }
 
-        const registros = [];
+        let registros = [];
         snapshot.forEach(doc => registros.push({ id: doc.id, ...doc.data() }));
+
+        // Virtual Grid for Excel Mode
+        if (isExcel) {
+            const existingMap = {};
+            registros.forEach(r => existingMap[`${r.fecha}_${r.horario}`] = r);
+            registros = [];
+            for (let d = 1; d <= lastDayDate.getDate(); d++) {
+                const f = `${anio}-${String(mes + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                ['AM', 'PM'].forEach(horario => {
+                    const key = `${f}_${horario}`;
+                    if (existingMap[key]) {
+                        registros.push(existingMap[key]);
+                    } else {
+                        registros.push({
+                            id: `virtual_${key}`,
+                            fecha: f,
+                            horario: horario,
+                            litros: {}
+                        });
+                    }
+                });
+            }
+        }
 
         // Collect all unique animal names across all records
         const animalNamesSet = new Set();
@@ -4204,9 +4294,9 @@ async function loadMilkRecords() {
         // Sort by lactante order
         const lactantes = (currentHerdCenso || [])
             .filter(a => a.estado.toUpperCase().includes('LACTANDO'))
-            .map(a => a.nombre)
-            .filter(n => animalNamesSet.has(n));
-        // Add any animals in Firebase not in current censo
+            .map(a => a.nombre);
+
+        // Add any animals in Firebase not in current censo that have records
         animalNamesSet.forEach(n => { if (!lactantes.includes(n)) lactantes.push(n); });
 
         // Build dynamic header
@@ -4217,6 +4307,7 @@ async function loadMilkRecords() {
                 ${lactantes.map(a => `<th style="font-size:0.8rem;">${getAnimalEmoji(a)} ${a}</th>`).join('')}
                 <th style="font-weight:700; color:var(--text-accent);">Total (L)</th>
                 <th>Notas</th>
+                <th style="width:60px;">⚙️</th>
             </tr>`;
         }
 
@@ -4225,14 +4316,11 @@ async function loadMilkRecords() {
         const perVaca = {};
         lactantes.forEach(a => { perVaca[a] = { am: 0, pm: 0, count: 0 }; });
 
-        // Logic check: is the loaded month editable? (Current or Prev Month)
-        const hoy = new Date();
-        const loadedDate = new Date(anio, mes, 1);
-        const diffMonths = (hoy.getFullYear() - loadedDate.getFullYear()) * 12 + (hoy.getMonth() - loadedDate.getMonth());
-        const isEditable = diffMonths <= 1;
+        const editBtn = document.getElementById('btn-edit-milk-month');
+        if (editBtn) editBtn.style.display = (isEditable && !isExcel) ? 'block' : 'none';
 
         const saveBtn = document.getElementById('btn-save-milk-edits');
-        if (saveBtn) saveBtn.style.display = isEditable && registros.length > 0 ? 'block' : 'none';
+        if (saveBtn) saveBtn.style.display = isExcel ? 'block' : 'none';
 
         // Render rows
         const rows = registros.map(r => {
@@ -4264,8 +4352,8 @@ async function loadMilkRecords() {
                 <td><span style="${turnoStyle} padding:2px 8px; border-radius:4px; font-size:0.85rem;">${turnoIcon}</span></td>
                 ${lactantes.map(a => {
                 const val = parseFloat(litros[a]) || 0;
-                if (isEditable) {
-                    return `<td><input type="number" step="0.1" class="form-control milk-edit-input" data-docid="${r.id}" data-vaca="${a}" value="${val > 0 ? val : ''}" style="width:60px; padding:2px 4px; border:1px solid transparent; background:rgba(255,255,255,0.05); color:var(--text-color); font-size:1rem; text-align:center;" onchange="setDirty(true)" onfocus="this.style.border='1px solid var(--primary-color)'" onblur="this.style.border='1px solid transparent'"></td>`;
+                if (isExcel) {
+                    return `<td><input type="number" step="0.1" class="form-control milk-edit-input" data-docid="${r.id}" data-vaca="${a}" data-fecha="${r.fecha}" data-horario="${r.horario}" value="${val > 0 ? val : ''}" style="width:60px; padding:2px 4px; border:1px solid transparent; background:rgba(255,255,255,0.05); color:var(--text-color); font-size:1rem; text-align:center;" onchange="setDirty(true)" onfocus="this.style.border='1px solid var(--primary-color)'" onblur="this.style.border='1px solid transparent'"></td>`;
                 } else {
                     const style = val > 0 ? 'color: #4ade80; font-weight:600;' : 'color:var(--text-muted);';
                     return `<td style="${style}">${val > 0 ? val.toFixed(1) : '—'}</td>`;
@@ -4274,7 +4362,7 @@ async function loadMilkRecords() {
                 <td style="font-weight:700; color:var(--text-accent);">${rowTotal.toFixed(1)} L</td>
                 <td style="font-size:0.8rem; color:var(--text-muted);">${escapeHTML(r.notas || '')} ${r.potrero ? `[${r.potrero}]` : ''}</td>
                 <td>
-                    ${isEditable ? `<button class="btn btn-sm btn-outline-danger" onclick="eliminarRegistroOrdeno('${r.id}')" title="Eliminar registro">🗑️</button>` : `<span title="Liquidado Histórico">🔒</span>`}
+                    ${isExcel && !r.id.startsWith('virtual_') ? `<button class="btn btn-sm btn-outline-danger" onclick="eliminarRegistroOrdeno('${r.id}')" title="Eliminar registro">🗑️</button>` : (!isExcel && isEditable ? `<button class="btn btn-sm btn-outline-danger" onclick="eliminarRegistroOrdeno('${r.id}')" title="Eliminar registro">🗑️</button>` : `<span title="Liquidado Histórico">🔒</span>`)}
                 </td>
             </tr>`;
         });
@@ -4325,6 +4413,12 @@ async function loadMilkRecords() {
 }
 
 // ─── GUARDADO MASIVO DE ORDEÑOS (EXCEL STYLE) ─────────────────────────
+let isExcelModeActive = false;
+function enableExcelMode() {
+    isExcelModeActive = true;
+    loadMilkRecords();
+}
+
 async function saveMilkEdits() {
     const inputs = document.querySelectorAll('.milk-edit-input');
     if (inputs.length === 0) return;
@@ -4341,20 +4435,43 @@ async function saveMilkEdits() {
         const vaca = inp.dataset.vaca;
         const val = parseFloat(inp.value) || 0;
 
-        if (!updates[docId]) updates[docId] = {};
-        updates[docId][vaca] = val;
+        if (!updates[docId]) {
+            updates[docId] = {
+                litros: {},
+                isVirtual: docId.startsWith('virtual_'),
+                fecha: inp.dataset.fecha,
+                horario: inp.dataset.horario
+            };
+        }
+        updates[docId].litros[vaca] = val;
     });
 
     try {
         const batch = db.batch();
         Object.keys(updates).forEach(docId => {
-            const docRef = db.collection('produccion').doc(docId);
-            const litrosObject = updates[docId];
-            batch.set(docRef, { litros: litrosObject }, { merge: true });
+            const data = updates[docId];
+            const hasMilk = Object.values(data.litros).some(v => v > 0);
+
+            if (data.isVirtual) {
+                if (hasMilk) {
+                    const docRef = db.collection('produccion').doc();
+                    batch.set(docRef, {
+                        fecha: data.fecha,
+                        horario: data.horario,
+                        litros: data.litros,
+                        registradoPor: typeof currentUser !== 'undefined' && currentUser ? currentUser.name : 'Sistema',
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            } else {
+                const docRef = db.collection('produccion').doc(docId);
+                batch.set(docRef, { litros: data.litros }, { merge: true });
+            }
         });
 
         await batch.commit();
         setDirty(false); // Clean up guard state
+        isExcelModeActive = false;
         showToast('Toda la tabla se actualizó correctamente ✅', 'success');
         loadMilkRecords(); // Reload to refresh totals and stats
     } catch (e) {
