@@ -482,6 +482,13 @@ function _doSwitchTab(tabId) {
 
     // Load data for specific tabs
     if (tabId === 'inicio') loadDashboardStats();
+    if (tabId === 'ordeno') {
+        const lastPotrero = localStorage.getItem('last_ordeno_potrero');
+        if (lastPotrero) {
+            const potreroInput = document.getElementById('ordeno-potrero');
+            if (potreroInput) potreroInput.value = lastPotrero;
+        }
+    }
     if (tabId === 'rentabilidad') loadRentabilidad();
     if (tabId === 'historial') loadHistorial();
     if (tabId === 'explorador') {
@@ -494,6 +501,11 @@ function _doSwitchTab(tabId) {
     if (tabId === 'config') renderConfigAnimales();
     if (tabId === 'registros') {
         initRegistrosSelectors();
+        const mesSelect = document.getElementById('registros-mes');
+        const anioSelect = document.getElementById('registros-anio');
+        const today = new Date();
+        if (mesSelect) mesSelect.value = today.getMonth().toString();
+        if (anioSelect) anioSelect.value = today.getFullYear().toString();
         loadMilkRecords();
     }
 }
@@ -876,7 +888,17 @@ async function handleEvento(e) {
         payload.observaciones = document.getElementById('insem-observaciones').value;
         payload.estado = document.getElementById('insem-estado').value;
         payload.fechaDiagnostico = document.getElementById('insem-fecha-diag').value;
-        payload.fechaEstimadaParto = document.getElementById('insem-fecha-parto').value;
+
+        let partoStr = document.getElementById('insem-fecha-parto').value;
+        if (payload.estado === 'Preñada' && !partoStr) {
+            const insemDateObj = new Date(payload.fecha + 'T12:00:00');
+            insemDateObj.setDate(insemDateObj.getDate() + 283);
+            const y = insemDateObj.getFullYear();
+            const m = String(insemDateObj.getMonth() + 1).padStart(2, '0');
+            const d = String(insemDateObj.getDate()).padStart(2, '0');
+            partoStr = `${y}-${m}-${d}`;
+        }
+        payload.fechaEstimadaParto = partoStr;
 
         if (!payload.animal) {
             showToast('Selecciona el animal', 'error');
@@ -3393,6 +3415,9 @@ function showSyncSuccess(successId) {
     if (el) {
         el.classList.remove('hidden');
         el.style.animation = 'none';
+        el.style.fontSize = '1.2rem';
+        el.style.padding = '15px';
+        el.style.boxShadow = '0 10px 25px rgba(0,0,0,0.5)';
         el.offsetHeight; // trigger reflow
         el.style.animation = 'slideUp 0.4s ease-out';
         setTimeout(() => el.classList.add('hidden'), 5000);
@@ -3409,8 +3434,17 @@ function showToast(message, type = 'info') {
     if (!container) return;
     const icons = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
     const toast = document.createElement('div');
-    toast.className = `toast ${type} `;
-    toast.innerHTML = `< span > ${icons[type]}</span > <span>${message}</span>`;
+    toast.className = `toast ${type}`;
+
+    // UI Upgrade: Modales súper perceptibles para éxitos
+    if (type === 'success') {
+        toast.style.padding = '20px 30px';
+        toast.style.fontSize = '1.2rem';
+        toast.style.fontWeight = 'bold';
+        toast.style.boxShadow = '0 10px 25px rgba(0,0,0,0.4)';
+    }
+
+    toast.innerHTML = `<span>${icons[type]}</span> <span>${message}</span>`;
     container.appendChild(toast);
     setTimeout(() => {
         toast.classList.add('toast-exit');
@@ -4033,10 +4067,12 @@ async function eliminarGestacion(id) {
         await db.collection('eventos').doc(id).delete();
         showToast('Gestación eliminada correctamente 🗑️', 'success');
 
-        // Refresh Gestacion panel
-        const insemData = await fetchFromSheets('inseminaciones');
-        loadGestacion(insemData);
-        loadHistorial();
+        // Refresh Gestacion panel with a delay to evade immediate network caching in FireStore
+        setTimeout(async () => {
+            const insemData = await fetchFromSheets('inseminaciones');
+            loadGestacion(insemData);
+            loadHistorial();
+        }, 600);
     } catch (e) {
         showToast('Error al eliminar: ' + e.message, 'error');
     }
