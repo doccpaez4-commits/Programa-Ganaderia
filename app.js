@@ -1001,7 +1001,8 @@ async function fetchFromSheets(accion, params = {}) {
                 'nacimientos': 'eventos',
                 'celos': 'eventos',
                 'vacunaciones': 'vacunaciones',
-                'rentabilidad': 'produccion'
+                'rentabilidad': 'produccion',
+                'gastos_mes': 'gastos'
             };
             const coll = collectionMap[accion];
             if (!coll) return getDemoData(accion);
@@ -3902,6 +3903,8 @@ function openEditInsemModal(id) {
             if (document.getElementById('edit-insem-estado')) document.getElementById('edit-insem-estado').value = d.estado || 'Pendiente';
             if (document.getElementById('edit-insem-toro')) document.getElementById('edit-insem-toro').value = d.toro || '';
             if (document.getElementById('edit-insem-parto')) document.getElementById('edit-insem-parto').value = d.fechaEstimadaParto || '';
+            if (document.getElementById('edit-insem-tecnico')) document.getElementById('edit-insem-tecnico').value = d.tecnico || '';
+            if (document.getElementById('edit-insem-obs')) document.getElementById('edit-insem-obs').value = d.observaciones || '';
 
             const sel = document.getElementById('edit-insem-animal');
             if (sel) {
