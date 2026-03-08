@@ -101,9 +101,13 @@
       <!-- Header -->
       <header class="app-header">
         <div class="header-brand">
-          <img src="Logo 2.png" alt="PaMora" style="height: 75px; width: auto; margin-right: 15px;">
-          <h1 class="header-brand-text">PaMora Leche</h1>
+          <img src="Logo 2.png" alt="PaMora" class="header-logo-img">
+          <div class="header-brand-titles">
+            <h1 class="header-brand-text">PaMora Leche</h1>
+            <span class="header-brand-subtext">Susa, Cundin Mararos 1, Susa<br>Cundinamarca • Colombia</span>
+          </div>
         </div>
+
         <div class="header-user">
           <!-- Notification Bell -->
           <div class="header-notifications">
@@ -121,8 +125,25 @@
               </div>
             </div>
           </div>
-          <span id="user-name" class="header-user-name"></span>
-          <button class="btn-outline-pamora" onclick="handleLogout()">Salir</button>
+
+          <div class="header-user-profile">
+            <div class="header-avatar">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path
+                  d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm0 14c-2.03 0-4.43-.82-6.14-2.88C7.55 15.8 9.68 15 12 15s4.45.8 6.14 2.12C16.43 19.18 14.03 20 12 20z" />
+              </svg>
+            </div>
+            <span id="user-name" class="header-user-name"></span>
+          </div>
+          <button class="btn-outline-pamora" onclick="handleLogout()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+            Salir
+          </button>
         </div>
       </header>
 
