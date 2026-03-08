@@ -101,7 +101,7 @@
       <!-- Header -->
       <header class="app-header">
         <div class="header-brand">
-          <img src="Logo 1.png" alt="PaMora" class="header-logo-img">
+          <img src="Logo 2.png" alt="PaMora" class="header-logo-img">
           <div class="header-brand-titles">
             <h1 class="header-brand-text">PaMora Leche</h1>
             <span class="header-brand-subtext">Susa, Cundinamarca, Colombia</span>
@@ -187,7 +187,7 @@
       <!-- Global Sync Progress Bar -->
       <div id="sync-progress-container" class="sync-progress-container hidden">
         <div class="sync-progress-info">
-          <span id="sync-status-text">Sincronizando con Firebase...</span>
+          <span id="sync-status-text">Cargando tu operación...</span>
           <span id="sync-percent">0%</span>
         </div>
         <div class="sync-progress-bar-bg">
@@ -200,9 +200,53 @@
 
         <!-- ═══ PANEL: INICIO (Dashboard) ═══ -->
         <div id="panel-inicio" class="tab-panel">
+
+          <div class="welcome-banner mb-4">
+            <div class="welcome-content">
+              <h1 class="welcome-title">¡Buen día, Ganadero! 🌅</h1>
+              <p class="welcome-subtitle">Qué bueno verte de nuevo. Aquí tienes un resumen de tu operación.</p>
+            </div>
+          </div>
+
+          <!-- KPI Cards Premium -->
+          <div class="stats-grid mb-4">
+            <div class="stat-card p-4 d-flex align-items-center justify-content-between">
+              <div>
+                <div class="stat-label mb-1">Total Animales</div>
+                <div class="stat-value" id="stat-animales-premium">847</div>
+                <div class="stat-trend positive">+12 este mes</div>
+              </div>
+              <div class="stat-icon-container lavender-bg">👥</div>
+            </div>
+            <div class="stat-card p-4 d-flex align-items-center justify-content-between">
+              <div>
+                <div class="stat-label mb-1">Producción Promedio</div>
+                <div class="stat-value" id="stat-promedio-premium">425 L</div>
+                <div class="stat-trend positive">+8.5% vs mes ant.</div>
+              </div>
+              <div class="stat-icon-container mint-bg">📈</div>
+            </div>
+            <div class="stat-card p-4 d-flex align-items-center justify-content-between">
+              <div>
+                <div class="stat-label mb-1">Salud del Hato</div>
+                <div class="stat-value">96%</div>
+                <div class="stat-trend">815 saludables</div>
+              </div>
+              <div class="stat-icon-container success-bg">✅</div>
+            </div>
+            <div class="stat-card p-4 d-flex align-items-center justify-content-between">
+              <div>
+                <div class="stat-label mb-1">Ganancia Diaria</div>
+                <div class="stat-value">1.2 kg</div>
+                <div class="stat-trend positive">Óptimo</div>
+              </div>
+              <div class="stat-icon-container warning-bg">🕒</div>
+            </div>
+          </div>
+
           <div class="section-header">
-            <h1 class="section-title">🏠 Panel de Control</h1>
-            <p class="section-subtitle">Selecciona una acción para comenzar</p>
+            <h2 class="section-title">Acciones Rápidas</h2>
+            <p class="section-subtitle">Gestión directa de tu operación</p>
           </div>
 
           <div class="dashboard-grid">

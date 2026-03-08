@@ -23,7 +23,7 @@ async function exportarPDF() {
         let yPos = margin;
 
         // ── Header ──
-        doc.setFillColor(45, 80, 22);
+        doc.setFillColor(28, 42, 24); // #1c2a18 (forest-deep)
         doc.rect(0, 0, pageWidth, 35, 'F');
 
         doc.setTextColor(255, 255, 255);
@@ -61,15 +61,15 @@ async function exportarPDF() {
         kpis.forEach((kpi, i) => {
             const x = margin + col * colWidth;
 
-            doc.setFillColor(240, 253, 244);
-            doc.roundedRect(x, rowY - 4, colWidth - 4, 18, 3, 3, 'F');
+            doc.setFillColor(248, 250, 245); // Very light mint-tinted bg
+            doc.roundedRect(x, rowY - 4, colWidth - 4, 18, 4, 4, 'F');
 
             doc.setFont('helvetica', 'normal');
-            doc.setTextColor(100, 100, 100);
+            doc.setTextColor(100, 110, 100);
             doc.text(kpi.label, x + 4, rowY + 2);
 
             doc.setFont('helvetica', 'bold');
-            doc.setTextColor(45, 80, 22);
+            doc.setTextColor(0, 102, 0); // #006600 (brand-green)
             doc.setFontSize(12);
             doc.text(kpi.value, x + 4, rowY + 10);
             doc.setFontSize(10);

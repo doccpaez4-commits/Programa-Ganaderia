@@ -5,39 +5,37 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
 
 :root {
-  /* Pamora SaaS Palette - Light Clean */
-  --verde-pamora: #1C4D38;
-  /* Dark green brand */
-  --primary-color: #22c55e;
+  /* Pamora SaaS Palette 3.0 - Premium Forest */
+  --forest-deep: #1c2a18;
+  --mint-green: #6eea8e;
+  --lavender: #826cf6;
+  --brand-green: #006600;
+
+  --verde-pamora: var(--forest-deep);
+  --primary-color: var(--brand-green);
   --secondary-color: #f9fafb;
-  /* App Background */
-  --terracota: #e17055;
   --glass-bg: #ffffff;
-  /* Replaces dark translucent cards */
-  --glass-border: #e2e8f0;
+  --glass-border: #eef2f6;
 
-  --primary-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  --accent-gradient: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  --danger-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  --primary-gradient: linear-gradient(135deg, var(--brand-green) 0%, #055a00 100%);
+  --accent-gradient: linear-gradient(135deg, var(--forest-deep) 0%, #2c422c 100%);
+  --mint-gradient: linear-gradient(135deg, #6eea8e 0%, #4ade80 100%);
+  --lavender-gradient: linear-gradient(135deg, #826cf6 0%, #6366f1 100%);
 
-  --bg-deep: #f8fafc;
-  /* Very light slate background */
-  --text-main: #0f172a;
-  /* Slate 900 for dark mode contrast */
-  --text-white: #ffffff;
+  --bg-deep: #f4f7f5;
+  --text-main: #1a1f1a;
   --text-muted: #64748b;
-  /* Slate 500 */
-  --text-accent: #22c55e;
+  --text-accent: var(--brand-green);
 
-  --radius-xl: 20px;
-  --radius-lg: 16px;
-  --radius-md: 10px;
+  --radius-xl: 24px;
+  --radius-lg: 18px;
+  --radius-md: 12px;
 
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.03);
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.02);
+  --shadow-md: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 20px 40px -10px rgba(0, 0, 0, 0.08);
 
-  --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ─── Base ──────────────────────────────────────────────── */
@@ -58,9 +56,16 @@ body {
 .dash-card,
 .stat-card {
   background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
+  border: none;
   box-shadow: var(--shadow-md);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
+  transition: var(--transition);
+}
+
+.dash-card:hover,
+.stat-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-lg);
 }
 
 /* ─── Header & Notifications ───────────────────────────── */
@@ -85,8 +90,12 @@ body {
 .header-logo-img {
   height: 60px;
   width: auto;
-  filter: brightness(0) invert(1) contrast(1.2);
-  opacity: 0.95;
+  filter: contrast(1.1) brightness(1.05);
+  transition: var(--transition);
+}
+
+.header-logo-img:hover {
+  transform: scale(1.05);
 }
 
 .header-brand-titles {
@@ -291,6 +300,111 @@ body {
   flex-direction: column;
   z-index: 2000;
   animation: slideDown 0.3s ease;
+}
+
+/* ─── Modern Dashboard 3.0 ────────────────────────────── */
+.welcome-banner {
+  background: linear-gradient(135deg, var(--forest-deep) 0%, #2c422c 100%);
+  padding: 40px;
+  border-radius: var(--radius-xl);
+  color: white;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+
+.welcome-banner::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -10%;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(110, 231, 183, 0.1) 0%, transparent 70%);
+  border-radius: 50%;
+}
+
+.welcome-title {
+  font-size: 2rem;
+  font-weight: 800;
+  margin-bottom: 8px;
+  letter-spacing: -0.5px;
+}
+
+.welcome-subtitle {
+  font-size: 1.1rem;
+  opacity: 0.85;
+  font-weight: 400;
+}
+
+.stat-icon-container {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+}
+
+.lavender-bg {
+  background: rgba(130, 108, 246, 0.1);
+  color: #826cf6;
+}
+
+.mint-bg {
+  background: rgba(110, 231, 183, 0.1);
+  color: #059669;
+}
+
+.success-bg {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.warning-bg {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+}
+
+.stat-value {
+  font-size: 1.8rem !important;
+  font-weight: 800 !important;
+  color: var(--text-main);
+  margin: 4px 0;
+}
+
+.stat-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stat-trend {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.stat-trend.positive {
+  color: #10b981;
+}
+
+/* Global Sync Progress Fix */
+.sync-progress-container {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid var(--glass-border);
+  padding: 16px 24px;
+  border-radius: 100px;
+  box-shadow: var(--shadow-lg);
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5000;
+  width: auto;
+  min-width: 320px;
 }
 
 @keyframes slideDown {
