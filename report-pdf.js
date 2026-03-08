@@ -23,7 +23,7 @@ async function exportarPDF() {
         let yPos = margin;
 
         // ── Header ──
-        doc.setFillColor(28, 42, 24); // #1c2a18 (forest-deep)
+        doc.setFillColor(28, 77, 56); // #1C4D38 (forest-deep)
         doc.rect(0, 0, pageWidth, 35, 'F');
 
         doc.setTextColor(255, 255, 255);

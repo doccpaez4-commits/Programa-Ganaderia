@@ -2857,7 +2857,7 @@ function buildProduccionAnimalChart(data) {
 
     const labels = ANIMALES;
     const totals = ANIMALES.map(a => data.produccionPorAnimal?.[a]?.total || 0);
-    const colors = ['#006600', '#6eea8e', '#826cf6', '#1c2a18', '#4ade80', '#6366f1', '#10b981'];
+    const colors = ['#1C4D38', '#6eea8e', '#826cf6', '#006600', '#4ade80', '#6366f1', '#10b981'];
 
     ctx._chart = new Chart(ctx, {
         type: 'bar',
@@ -2954,7 +2954,7 @@ function buildGastosCategoriaChart(data) {
     const categorias = Object.keys(data.porCategoria || {});
     const montos = categorias.map(c => data.porCategoria[c]);
     // Modern palette for expenses (SaaS Premium 3.0)
-    const categColors = ['#006600', '#6eea8e', '#826cf6', '#f59e0b', '#ef4444', '#8b5cf6', '#0ea5e9'];
+    const categColors = ['#1C4D38', '#6eea8e', '#826cf6', '#f59e0b', '#ef4444', '#8b5cf6', '#0ea5e9'];
 
     ctx._chart = new Chart(ctx, {
         type: 'doughnut',
