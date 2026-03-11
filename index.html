@@ -55,7 +55,7 @@
   <div id="loading-overlay" class="loading-overlay">
     <div class="loading-content">
       <div class="spinner"></div>
-      <p>Sincronizando con Firebase...</p>
+      <p>Cargando PaMora...</p>
     </div>
   </div>
 
@@ -65,6 +65,22 @@
          LOGIN SCREEN
          ═══════════════════════════════════════════════════ -->
     <div id="login-screen" class="login-screen">
+      <!-- Decorative mountain landscape at the bottom -->
+      <div class="login-landscape" aria-hidden="true">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 280" preserveAspectRatio="none">
+          <!-- Far mountains (darkest green) -->
+          <path fill="rgba(14,50,28,0.85)"
+            d="M0,200 C80,140 160,180 260,120 C340,70 400,160 500,130 C600,100 660,150 760,100 C860,50 920,140 1020,90 C1120,40 1200,130 1300,100 C1360,82 1410,110 1440,95 L1440,280 L0,280 Z" />
+          <!-- Mid mountains (medium green) -->
+          <path fill="rgba(22,72,42,0.9)"
+            d="M0,230 C60,185 140,215 220,175 C310,130 370,200 460,170 C560,138 610,190 720,160 C820,132 880,185 980,155 C1080,125 1160,175 1260,148 C1340,128 1400,160 1440,145 L1440,280 L0,280 Z" />
+          <!-- Near hills (lighter accent) -->
+          <path fill="rgba(30,71,47,0.95)"
+            d="M0,255 C100,230 200,250 320,235 C440,220 520,248 640,238 C760,228 840,252 960,240 C1080,228 1180,248 1320,238 C1390,233 1430,242 1440,240 L1440,280 L0,280 Z" />
+          <!-- Ground (same as background) -->
+          <path fill="rgba(13,43,26,1)" d="M0,265 L1440,265 L1440,280 L0,280 Z" />
+        </svg>
+      </div>
       <div class="login-card">
         <div class="login-logo">
           <img src="Logo 1.png" alt="PaMora Logo" style="width: 320px; height: auto; margin-bottom: 20px;">
@@ -98,91 +114,94 @@
          ═══════════════════════════════════════════════════ -->
     <div id="app-layout" class="app-layout">
 
-      <!-- Header -->
-      <header class="app-header">
-        <div class="header-brand">
-          <img src="Logo 2.png" alt="PaMora" class="header-logo-img">
-          <div class="header-brand-titles">
-            <h1 class="header-brand-text">PaMora Leche</h1>
-            <span class="header-brand-subtext">Susa, Cundinamarca, Colombia</span>
-          </div>
-        </div>
-
-        <div class="header-user">
-          <!-- Notification Bell -->
-          <div class="header-notifications">
-            <button class="nav-icon-btn" id="notification-bell" onclick="toggleNotifications()">
-              <span>🔔</span>
-              <span id="notification-badge" class="badge-dot hidden"></span>
-            </button>
-            <div id="notification-dropdown" class="notification-dropdown hidden">
-              <div class="notification-header">
-                <h6>Notificaciones</h6>
-                <button onclick="clearNotifications()" class="btn-clear-all">Limpiar</button>
-              </div>
-              <div id="notification-list" class="notification-list">
-                <div class="notification-empty">No hay notificaciones nuevas</div>
-              </div>
+      <!-- Unified Header Wrapper -->
+      <div class="header-wrapper">
+        <!-- Header -->
+        <header class="app-header">
+          <div class="header-brand">
+            <img src="Logo 2.png" alt="PaMora" class="header-logo-img">
+            <div class="header-brand-titles">
+              <h1 class="header-brand-text">PaMora Leche</h1>
+              <span class="header-brand-subtext">Susa, Cundinamarca, Colombia</span>
             </div>
           </div>
 
-          <div class="header-user-profile">
-            <div class="header-avatar">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                <path
-                  d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm0 14c-2.03 0-4.43-.82-6.14-2.88C7.55 15.8 9.68 15 12 15s4.45.8 6.14 2.12C16.43 19.18 14.03 20 12 20z" />
+          <div class="header-user">
+            <!-- Notification Bell -->
+            <div class="header-notifications">
+              <button class="nav-icon-btn" id="notification-bell" onclick="toggleNotifications()">
+                <span>🔔</span>
+                <span id="notification-badge" class="badge-dot hidden"></span>
+              </button>
+              <div id="notification-dropdown" class="notification-dropdown hidden">
+                <div class="notification-header">
+                  <h6>Notificaciones</h6>
+                  <button onclick="clearNotifications()" class="btn-clear-all">Limpiar</button>
+                </div>
+                <div id="notification-list" class="notification-list">
+                  <div class="notification-empty">No hay notificaciones nuevas</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="header-user-profile">
+              <div class="header-avatar">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                  <path
+                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm0 14c-2.03 0-4.43-.82-6.14-2.88C7.55 15.8 9.68 15 12 15s4.45.8 6.14 2.12C16.43 19.18 14.03 20 12 20z" />
+                </svg>
+              </div>
+              <span id="user-name" class="header-user-name"></span>
+            </div>
+            <button class="btn-outline-pamora" onclick="handleLogout()">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                <polyline points="16 17 21 12 16 7"></polyline>
+                <line x1="21" y1="12" x2="9" y2="12"></line>
               </svg>
-            </div>
-            <span id="user-name" class="header-user-name"></span>
+              Salir
+            </button>
           </div>
-          <button class="btn-outline-pamora" onclick="handleLogout()">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-              <polyline points="16 17 21 12 16 7"></polyline>
-              <line x1="21" y1="12" x2="9" y2="12"></line>
-            </svg>
-            Salir
-          </button>
-        </div>
-      </header>
+        </header>
 
-      <!-- Navigation -->
-      <nav class="nav-tabs-pamora">
-        <button class="nav-tab" data-tab="inicio" id="tab-inicio">
-          <span>🏠</span> Inicio
-        </button>
-        <button class="nav-tab" data-tab="ordeno" id="tab-ordeno">
-          <span>🥛</span> Ordeño
-        </button>
-        <button class="nav-tab" data-tab="eventos" id="tab-eventos">
-          <span>📋</span> Eventos
-        </button>
-        <button class="nav-tab" data-tab="costos" id="tab-costos">
-          <span>💰</span> Costos
-        </button>
-        <button class="nav-tab" data-tab="rentabilidad" id="tab-rentabilidad">
-          <span>📊</span> Rentabilidad
-        </button>
-        <button class="nav-tab active" data-tab="mi-hato" id="tab-mi-hato" onclick="loadHerdInventory()">
-          <span>🐄</span> Mi Hato
-        </button>
-        <button class="nav-tab" data-tab="gestacion" id="tab-gestacion">
-          <span>🐄</span> Gestación
-        </button>
-        <button class="nav-tab" data-tab="historial" id="tab-historial">
-          <span>📜</span> Historial
-        </button>
-        <button class="nav-tab" data-tab="vacunaciones" id="tab-vacunaciones">
-          <span>💉</span> Vacunas
-        </button>
-        <button class="nav-tab" data-tab="registros" id="tab-registros">
-          <span>🥛</span> Registros
-        </button>
-        <button class="nav-tab" data-tab="explorador" id="tab-explorador">
-          <span>🔍</span> Explorador
-        </button>
-      </nav>
+        <!-- Navigation -->
+        <nav class="nav-tabs-pamora">
+          <button class="nav-tab" data-tab="inicio" id="tab-inicio">
+            <span>🏠</span> Inicio
+          </button>
+          <button class="nav-tab" data-tab="ordeno" id="tab-ordeno">
+            <span>🥛</span> Ordeño
+          </button>
+          <button class="nav-tab" data-tab="eventos" id="tab-eventos">
+            <span>📋</span> Eventos
+          </button>
+          <button class="nav-tab" data-tab="costos" id="tab-costos">
+            <span>💰</span> Costos
+          </button>
+          <button class="nav-tab" data-tab="rentabilidad" id="tab-rentabilidad">
+            <span>📊</span> Rentabilidad
+          </button>
+          <button class="nav-tab active" data-tab="mi-hato" id="tab-mi-hato" onclick="loadHerdInventory()">
+            <span>🐄</span> Mi Hato
+          </button>
+          <button class="nav-tab" data-tab="gestacion" id="tab-gestacion">
+            <span>🐄</span> Gestación
+          </button>
+          <button class="nav-tab" data-tab="historial" id="tab-historial">
+            <span>📜</span> Historial
+          </button>
+          <button class="nav-tab" data-tab="vacunaciones" id="tab-vacunaciones">
+            <span>💉</span> Vacunas
+          </button>
+          <button class="nav-tab" data-tab="registros" id="tab-registros">
+            <span>🥛</span> Registros
+          </button>
+          <button class="nav-tab" data-tab="explorador" id="tab-explorador">
+            <span>🔍</span> Explorador
+          </button>
+        </nav>
+      </div>
 
       <!-- Global Sync Progress Bar -->
       <div id="sync-progress-container" class="sync-progress-container hidden">
@@ -749,7 +768,8 @@
                 style="width: auto; padding: 10px 20px; background: linear-gradient(135deg,#3b82f6,#2563eb);">
                 🧠 Generar Análisis
               </button>
-              <button class="btn-pamora" onclick="exportarReportePDF()" style="width: auto; padding: 10px 20px;">
+              <button class="btn-pamora" id="btn-exportar-pdf" onclick="exportarPDF()"
+                style="width: auto; padding: 10px 20px;">
                 📄 Exportar PDF
               </button>
             </div>

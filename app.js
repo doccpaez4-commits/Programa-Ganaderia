@@ -519,9 +519,22 @@ function _doSwitchTab(tabId) {
 
 // ─── DATE DEFAULTS ──────────────────────────────────────────
 
+/**
+ * Returns today's date as YYYY-MM-DD in LOCAL timezone.
+ * Using toISOString() returns UTC, which can show yesterday's date
+ * for users in negative UTC offsets (e.g. Colombia, UTC-5).
+ */
+function getLocalDateStr() {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const d = String(today.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
 function initDateDefaults() {
     const today = new Date();
-    const dateStr = today.toISOString().split('T')[0];
+    const dateStr = getLocalDateStr(); // Fix: use local date, not UTC
     ['ordeno-fecha', 'evento-fecha', 'gasto-fecha'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = dateStr;
@@ -571,7 +584,7 @@ function buildAnimalInputs(gridId, prefix) {
 
     // If census is not yet loaded, try to filter from raw category name "Vaca (Producción)" if meta exists locally
     // but the BEST way is to wait for the censo status.
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateStr(); // Fix: use local date (not UTC) for retiro comparison
 
     grid.innerHTML = lactantes.map((animalObj, index) => {
         const animal = animalObj.nombre;

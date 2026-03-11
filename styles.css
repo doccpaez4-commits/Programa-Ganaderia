@@ -6,23 +6,26 @@
 
 :root {
   /* Pamora SaaS Palette 3.0 - Premium Forest */
-  --forest-deep: #1C4D38;
+  --forest-deep: #1e472f;
+  /* Matched exactly to logo color */
   --mint-green: #6eea8e;
   --lavender: #826cf6;
-  --brand-green: #006600;
+  --brand-green: #1e6b3c;
 
   --verde-pamora: var(--forest-deep);
   --primary-color: var(--brand-green);
   --secondary-color: #f9fafb;
   --glass-bg: #ffffff;
   --glass-border: #eef2f6;
+  --glass-glow: rgba(110, 234, 142, 0.4);
+  /* Fixed: was used but never defined */
 
-  --primary-gradient: linear-gradient(135deg, var(--brand-green) 0%, #055a00 100%);
-  --accent-gradient: linear-gradient(135deg, var(--forest-deep) 0%, #2c422c 100%);
+  --primary-gradient: linear-gradient(135deg, var(--brand-green) 0%, #0f4a22 100%);
+  --accent-gradient: linear-gradient(135deg, var(--forest-deep) 0%, #2c4a3a 100%);
   --mint-gradient: linear-gradient(135deg, #6eea8e 0%, #4ade80 100%);
   --lavender-gradient: linear-gradient(135deg, #826cf6 0%, #6366f1 100%);
 
-  --bg-deep: #f4f7f5;
+  --bg-deep: #f2f6f3;
   --text-main: #1a1f1a;
   --text-muted: #64748b;
   --text-accent: var(--brand-green);
@@ -31,9 +34,9 @@
   --radius-lg: 18px;
   --radius-md: 12px;
 
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.02);
-  --shadow-md: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.03);
-  --shadow-lg: 0 20px 40px -10px rgba(0, 0, 0, 0.08);
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 10px 25px -5px rgba(0, 0, 0, 0.07), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 20px 40px -10px rgba(0, 0, 0, 0.12);
 
   --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -50,7 +53,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ─── Cards & Containers (No more dark glass) ───────────── */
+/* ─── Cards & Containers ────────────────────────────────── */
 .glass-effect,
 .card-pamora,
 .dash-card,
@@ -64,21 +67,66 @@ body {
 
 .dash-card:hover,
 .stat-card:hover {
-  transform: translateY(-5px);
+  transform: translateY(-6px);
   box-shadow: var(--shadow-lg);
+}
+
+/* ─── Unified Header Wrapper ───────────────────────────── */
+.header-wrapper {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background:
+    radial-gradient(ellipse at 0% 50%, rgba(110, 234, 142, 0.14) 0%, transparent 50%),
+    radial-gradient(ellipse at 100% 50%, rgba(14, 60, 30, 0.5) 0%, transparent 55%),
+    linear-gradient(135deg, #0d2b1a 0%, #1e472f 55%, #163a26 100%);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  /* Cow image spans the entire wrapper height */
+}
+
+/* Cow image on the right — spans full height of header+nav */
+.header-wrapper::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: -20px;
+  width: 340px;
+  height: 100%;
+  background: url('vaca.jpg') no-repeat right center;
+  background-size: cover;
+  opacity: 0.25;
+  filter: grayscale(20%) contrast(105%) brightness(0.75);
+  pointer-events: none;
+  z-index: 0;
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 40%);
+  mask-image: linear-gradient(to right, transparent 0%, black 40%);
 }
 
 /* ─── Header & Notifications ───────────────────────────── */
 .app-header {
-  background: var(--verde-pamora);
+  background: transparent;
   box-shadow: none;
-  padding: 12px 24px 8px 24px;
+  padding: 10px 24px 10px 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  position: sticky;
-  top: 0;
-  z-index: 1000;
+  position: relative;
+  z-index: 1;
+  /* above cow image */
+}
+
+/* ─── Nav Tabs Pamora ──────────────────────────────────── */
+.nav-tabs-pamora {
+  background: transparent;
+  position: relative;
+  z-index: 1;
+  /* Ensure content is above the cow image */
+  display: flex;
+  gap: 16px;
+  padding: 0 24px 14px 24px;
+  border-bottom: 0;
+  overflow-x: auto;
 }
 
 .header-brand {
@@ -304,24 +352,34 @@ body {
 
 /* ─── Modern Dashboard 3.0 ────────────────────────────── */
 .welcome-banner {
-  background: linear-gradient(135deg, var(--forest-deep) 0%, #2c422c 100%);
+  background: linear-gradient(135deg, var(--forest-deep) 0%, #12321f 100%);
   padding: 40px;
   border-radius: var(--radius-xl);
   color: white;
   position: relative;
   overflow: hidden;
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 20px 50px rgba(30, 71, 47, 0.35);
+}
+
+.welcome-banner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 15% 85%, rgba(110, 234, 142, 0.12) 0%, transparent 50%),
+    radial-gradient(circle at 85% 15%, rgba(110, 234, 142, 0.08) 0%, transparent 50%);
+  border-radius: inherit;
 }
 
 .welcome-banner::after {
-  content: '';
+  content: '🐄';
   position: absolute;
-  top: -50%;
-  right: -10%;
-  width: 300px;
-  height: 300px;
-  background: radial-gradient(circle, rgba(110, 231, 183, 0.1) 0%, transparent 70%);
-  border-radius: 50%;
+  top: 50%;
+  right: 32px;
+  transform: translateY(-50%);
+  font-size: 5rem;
+  opacity: 0.12;
+  pointer-events: none;
 }
 
 .welcome-title {
@@ -470,20 +528,7 @@ body {
   font-size: 0.9rem;
 }
 
-/* ─── Navigation ───────────────────────────────────────── */
-.nav-tabs-pamora {
-  display: flex;
-  gap: 16px;
-  padding: 0 24px 20px 24px;
-  background: var(--verde-pamora);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
-  border-bottom: 0;
-  overflow-x: auto;
-  position: sticky;
-  top: 85px;
-  /* Altura estimada del header para que peguen */
-  z-index: 999;
-}
+
 
 .nav-tab {
   padding: 10px 16px;
@@ -537,14 +582,34 @@ body {
   text-align: center;
   transition: var(--transition);
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+
+.dash-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--primary-gradient);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s ease;
+  border-radius: 24px 24px 0 0;
+}
+
+.dash-card:hover::before {
+  transform: scaleX(1);
 }
 
 .dash-card:hover {
   transform: translateY(-8px);
-  background: rgba(255, 255, 255, 0.12);
-  border-color: #4ade80;
-  box-shadow: 0 12px 40px rgba(74, 222, 128, 0.15);
+  background: #ffffff;
+  border-color: rgba(30, 107, 60, 0.25);
+  box-shadow: 0 16px 48px rgba(30, 71, 47, 0.14);
 }
 
 .dash-card-icon {
@@ -731,25 +796,112 @@ body {
   }
 }
 
-/* Login */
 /* ─── Login Screen ───────────────────────────────────────── */
 .login-screen {
-  background: var(--verde-pamora);
+  background:
+    radial-gradient(ellipse at 20% 80%, rgba(110, 234, 142, 0.18) 0%, transparent 55%),
+    radial-gradient(ellipse at 80% 20%, rgba(30, 107, 60, 0.4) 0%, transparent 55%),
+    linear-gradient(160deg, #0d2b1a 0%, #1e472f 45%, #163a26 100%);
   display: flex;
   justify-content: center;
   align-items: center;
   height: 100vh;
   padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Background image of the cow — right side, subtle transparency */
+.login-screen::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 55%;
+  /* occupies the right half of the screen */
+  height: 100%;
+  background: url('vaca.jpg') no-repeat right center;
+  background-size: cover;
+  opacity: 0.22;
+  /* visible but doesn't overpower the card */
+  filter: grayscale(30%) contrast(110%) brightness(0.85);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Dark gradient overlay on the left to fade the image naturally */
+.login-screen::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(to right,
+      #0d2b1a 35%,
+      /* solid dark on the left (behind the card) */
+      rgba(13, 43, 26, 0.7) 60%,
+      rgba(13, 43, 26, 0.1) 100%
+      /* fades to transparent revealing the cow */
+    );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* SVG landscape mountains at the bottom */
+.login-landscape {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 280px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.login-landscape svg {
+  width: 100%;
+  height: 100%;
+}
+
+@keyframes floatOrb {
+
+  0%,
+  100% {
+    transform: translateY(0px) scale(1);
+  }
+
+  50% {
+    transform: translateY(-20px) scale(1.05);
+  }
 }
 
 .login-card {
   width: 100%;
   max-width: 440px;
   padding: 60px 48px;
-  border-radius: 24px;
-  background: #ffffff;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 32px 64px -12px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
   text-align: center;
+  position: relative;
+  z-index: 10;
+  animation: cardSlideUp 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes cardSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .login-title {
@@ -757,6 +909,7 @@ body {
   font-weight: 800;
   font-size: 2.2rem;
   margin-bottom: 8px;
+  letter-spacing: -0.5px;
 }
 
 .login-subtitle {
@@ -774,11 +927,13 @@ body {
   background: #f9fafb !important;
   border: 1.5px solid #e5e7eb !important;
   color: #111827 !important;
+  transition: all 0.25s ease;
 }
 
 .login-card .form-control:focus {
   border-color: var(--verde-pamora) !important;
   background: #ffffff !important;
+  box-shadow: 0 0 0 3px rgba(30, 71, 47, 0.12) !important;
 }
 
 .login-error {
@@ -797,6 +952,15 @@ body {
   padding: 16px;
   font-size: 1.1rem;
   margin-top: 10px;
+  background: linear-gradient(135deg, var(--forest-deep) 0%, #0d2b1a 100%);
+  box-shadow: 0 8px 24px rgba(30, 71, 47, 0.4);
+  letter-spacing: 0.5px;
+}
+
+.login-card .btn-pamora:hover {
+  background: linear-gradient(135deg, #235535 0%, #1e472f 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(30, 71, 47, 0.5);
 }
 
 .btn-export {
@@ -1003,8 +1167,14 @@ body {
   .app-header {
     flex-direction: column;
     gap: 12px;
-    padding: 12px;
+    padding: 12px 16px 0 16px;
     text-align: center;
+  }
+
+  .header-wrapper::after {
+    /* Make cow slightly less wide so it doesn't take over small screens */
+    width: 250px;
+    opacity: 0.15;
   }
 
   .header-user {
