@@ -45,15 +45,10 @@ function clearSession() {
     localStorage.removeItem(SESSION_KEY);
 }
 
-const FIREBASE_CONFIG = {
-    apiKey: "AIzaSyDVp5Vph7Li9QsOz4pGc6kFiXASDwC-6vM",
-    authDomain: "pamoraleche.firebaseapp.com",
-    projectId: "pamoraleche",
-    storageBucket: "pamoraleche.firebasestorage.app",
-    messagingSenderId: "526179598333",
-    appId: "1:526179598333:web:2c46187cd0243f2dbfe394",
-    measurementId: "G-4ZH0SRTS5D"
-};
+// ─── FIREBASE CONFIG ────────────────────────────────────────
+// La configuración se carga desde firebase-config.js (archivo local, NO en GitHub).
+// Si no existe ese archivo, la app avisará que falta configuración.
+const FIREBASE_CONFIG = window.FIREBASE_CONFIG || null;
 
 
 // ─── ANIMALES DEL HATO ──────────────────────────────────────
@@ -113,7 +108,31 @@ function handleLogoutInactivity() {
 }
 
 function initFirebase() {
-    const isConfigured = FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== 'TU_API_KEY';
+    // Si no se cargó firebase-config.js, mostrar error claro
+    if (!FIREBASE_CONFIG) {
+        console.error('❌ firebase-config.js no encontrado. Crea ese archivo con tu configuración de Firebase.');
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+            overlay.innerHTML = `
+                <div class="loading-content" style="text-align:center; max-width:420px; padding:2rem;">
+                    <div style="font-size:3rem; margin-bottom:1rem;">⚠️</div>
+                    <h2 style="color:#ef4444; margin-bottom:1rem;">Configuración no encontrada</h2>
+                    <p style="color:#94a3b8; margin-bottom:1.5rem;">
+                        El archivo <code style="background:#1e293b; padding:2px 6px; border-radius:4px;">firebase-config.js</code>
+                        no está presente en esta carpeta.
+                    </p>
+                    <ol style="text-align:left; color:#94a3b8; line-height:1.8rem;">
+                        <li>Copia <code style="background:#1e293b; padding:2px 6px; border-radius:4px;">firebase-config.example.js</code></li>
+                        <li>Renómbralo a <code style="background:#1e293b; padding:2px 6px; border-radius:4px;">firebase-config.js</code></li>
+                        <li>Pega tu API Key de Firebase Console</li>
+                        <li>Recarga la página</li>
+                    </ol>
+                </div>`;
+        }
+        return;
+    }
+
+    const isConfigured = FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== 'TU_API_KEY_AQUI';
     if (isConfigured) {
         firebase.initializeApp(FIREBASE_CONFIG);
         db = firebase.firestore();
