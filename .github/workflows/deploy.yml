@@ -35,34 +35,43 @@ jobs:
           FB_MEASUREMENT_ID: ${{ secrets.FIREBASE_MEASUREMENT_ID }}
         run: |
           python3 - <<'PYEOF'
-          import os
+          import os, re
 
-          config_script = f"""<script>
-          // Configuración Firebase inyectada por GitHub Actions
-          window.FIREBASE_CONFIG = {{
-            apiKey: "{os.environ['FB_API_KEY']}",
-            authDomain: "{os.environ['FB_AUTH_DOMAIN']}",
-            projectId: "{os.environ['FB_PROJECT_ID']}",
-            storageBucket: "{os.environ['FB_STORAGE_BUCKET']}",
-            messagingSenderId: "{os.environ['FB_MESSAGING_SENDER_ID']}",
-            appId: "{os.environ['FB_APP_ID']}",
-            measurementId: "{os.environ['FB_MEASUREMENT_ID']}"
-          }};
-          </script>"""
+          config_script = """<script>
+          window.FIREBASE_CONFIG = {
+            apiKey: "%s",
+            authDomain: "%s",
+            projectId: "%s",
+            storageBucket: "%s",
+            messagingSenderId: "%s",
+            appId: "%s",
+            measurementId: "%s"
+          };
+          </script>""" % (
+            os.environ['FB_API_KEY'],
+            os.environ['FB_AUTH_DOMAIN'],
+            os.environ['FB_PROJECT_ID'],
+            os.environ['FB_STORAGE_BUCKET'],
+            os.environ['FB_MESSAGING_SENDER_ID'],
+            os.environ['FB_APP_ID'],
+            os.environ['FB_MEASUREMENT_ID']
+          )
 
           with open('index.html', 'r', encoding='utf-8') as f:
               content = f.read()
 
           # Reemplazar el tag del archivo externo por el config inline
-          content = content.replace(
-              '<!-- Configuración Firebase (archivo LOCAL, no está en GitHub) -->\n  <script src="firebase-config.js"></script>',
-              config_script
-          )
+          # Buscamos únicamente el script tag (más robusto, sin depender de espacios del comentario)
+          old = '<script src="firebase-config.js"></script>'
+          if old in content:
+              content = content.replace(old, config_script)
+              print("✅ Firebase config inyectado correctamente en index.html")
+          else:
+              print("❌ ERROR: No se encontró el tag de firebase-config.js en index.html")
+              exit(1)
 
           with open('index.html', 'w', encoding='utf-8') as f:
               f.write(content)
-
-          print("✅ Firebase config inyectado en index.html")
           PYEOF
 
       - name: Setup Pages
