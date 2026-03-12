@@ -37,6 +37,9 @@ jobs:
           python3 - <<'PYEOF'
           import os, re
 
+          def clean(val):
+              return val.replace('⚠️', '').strip()
+
           config_script = """<script>
           window.FIREBASE_CONFIG = {
             apiKey: "%s",
@@ -48,13 +51,13 @@ jobs:
             measurementId: "%s"
           };
           </script>""" % (
-            os.environ['FB_API_KEY'],
-            os.environ['FB_AUTH_DOMAIN'],
-            os.environ['FB_PROJECT_ID'],
-            os.environ['FB_STORAGE_BUCKET'],
-            os.environ['FB_MESSAGING_SENDER_ID'],
-            os.environ['FB_APP_ID'],
-            os.environ['FB_MEASUREMENT_ID']
+            clean(os.environ.get('FB_API_KEY', '')),
+            clean(os.environ.get('FB_AUTH_DOMAIN', '')),
+            clean(os.environ.get('FB_PROJECT_ID', '')),
+            clean(os.environ.get('FB_STORAGE_BUCKET', '')),
+            clean(os.environ.get('FB_MESSAGING_SENDER_ID', '')),
+            clean(os.environ.get('FB_APP_ID', '')),
+            clean(os.environ.get('FB_MEASUREMENT_ID', ''))
           )
 
           with open('index.html', 'r', encoding='utf-8') as f:
