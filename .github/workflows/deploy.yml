@@ -24,21 +24,46 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Crear firebase-config.js desde secretos
+      - name: Inyectar Firebase config en index.html
+        env:
+          FB_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FB_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+          FB_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FB_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          FB_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+          FB_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FB_MEASUREMENT_ID: ${{ secrets.FIREBASE_MEASUREMENT_ID }}
         run: |
-          cat > firebase-config.js << 'EOF'
-          // firebase-config.js — generado automáticamente por GitHub Actions
-          // NO editar manualmente. Los valores vienen de los secretos del repositorio.
-          window.FIREBASE_CONFIG = {
-            apiKey: "${{ secrets.FIREBASE_API_KEY }}",
-            authDomain: "${{ secrets.FIREBASE_AUTH_DOMAIN }}",
-            projectId: "${{ secrets.FIREBASE_PROJECT_ID }}",
-            storageBucket: "${{ secrets.FIREBASE_STORAGE_BUCKET }}",
-            messagingSenderId: "${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}",
-            appId: "${{ secrets.FIREBASE_APP_ID }}",
-            measurementId: "${{ secrets.FIREBASE_MEASUREMENT_ID }}"
-          };
-          EOF
+          python3 - <<'PYEOF'
+          import os
+
+          config_script = f"""<script>
+          // Configuración Firebase inyectada por GitHub Actions
+          window.FIREBASE_CONFIG = {{
+            apiKey: "{os.environ['FB_API_KEY']}",
+            authDomain: "{os.environ['FB_AUTH_DOMAIN']}",
+            projectId: "{os.environ['FB_PROJECT_ID']}",
+            storageBucket: "{os.environ['FB_STORAGE_BUCKET']}",
+            messagingSenderId: "{os.environ['FB_MESSAGING_SENDER_ID']}",
+            appId: "{os.environ['FB_APP_ID']}",
+            measurementId: "{os.environ['FB_MEASUREMENT_ID']}"
+          }};
+          </script>"""
+
+          with open('index.html', 'r', encoding='utf-8') as f:
+              content = f.read()
+
+          # Reemplazar el tag del archivo externo por el config inline
+          content = content.replace(
+              '<!-- Configuración Firebase (archivo LOCAL, no está en GitHub) -->\n  <script src="firebase-config.js"></script>',
+              config_script
+          )
+
+          with open('index.html', 'w', encoding='utf-8') as f:
+              f.write(content)
+
+          print("✅ Firebase config inyectado en index.html")
+          PYEOF
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
