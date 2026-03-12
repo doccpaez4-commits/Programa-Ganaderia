@@ -11,13 +11,8 @@
 // ⚠️  REEMPLAZA estos valores con los tuyos:
 
 const APPS_SCRIPT_URL = 'TU_URL_DE_APPS_SCRIPT_AQUI';
-const API_TOKEN = 'pamora_secreto_2026';
-
-// Credenciales locales
-const LOCAL_CREDENTIALS = {
-    usuario: 'admin',
-    password: 'pamora2026'
-};
+// El API_TOKEN ahora debe venir de firebase-config.js (si se usa Apps Script)
+const API_TOKEN = FIREBASE_CONFIG ? FIREBASE_CONFIG.apiToken : 'TOKEN_NO_CONFIGURADO';
 
 // Seguridad para Rentabilidad
 let isRentabilidadAuth = false;
@@ -314,12 +309,14 @@ function handleLogin(e) {
     } else {
         // [SECURITY NOTE] Demo mode fallback - Do not use in production
         setTimeout(() => {
-            if (email === LOCAL_CREDENTIALS.usuario && pass === LOCAL_CREDENTIALS.password) {
+            // Se eliminó la credencial local hardcodeada. 
+            // En modo demo, permite ingresar con cualquier correo y clave genérica si el usuario no tiene Firebase
+            if (email && pass === 'demo2026') {
                 saveSession(email);
                 bootApp(escapeHTML(email));
                 showToast('¡Bienvenido (modo demo)!', 'success');
             } else {
-                errorEl.textContent = 'Usuario o contraseña incorrectos';
+                errorEl.textContent = 'En modo sin Firebase, usa cualquier correo y clave: demo2026';
                 errorEl.style.display = 'block';
             }
             btn.disabled = false;
