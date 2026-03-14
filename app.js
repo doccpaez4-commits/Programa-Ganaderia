@@ -218,12 +218,16 @@ function initFormListeners() {
         setDirty(true);
     });
 
-    // Prevent scroll/wheel from accidentally changing number input values (critical for milk entry on mobile/touchpad)
-    document.addEventListener('wheel', function (e) {
+    // Prevent scroll/wheel/touch-scroll from accidentally changing number input values (critical for milk entry on mobile/touchpad)
+    const blurActiveInput = () => {
         if (document.activeElement && document.activeElement.type === 'number') {
             document.activeElement.blur();
         }
-    }, { passive: true });
+    };
+
+    document.addEventListener('wheel', blurActiveInput, { passive: true });
+    document.addEventListener('touchmove', blurActiveInput, { passive: true });
+    window.addEventListener('scroll', blurActiveInput, { passive: true });
 
     // Browser-level protection (refreshes, closing tab)
     window.addEventListener('beforeunload', (e) => {
