@@ -8,11 +8,12 @@
  */
 
 // ─── CONFIGURATION ──────────────────────────────────────────
-// ⚠️  REEMPLAZA estos valores con los tuyos:
+// La configuración se carga desde firebase-config.js (archivo local, NO en GitHub).
+const FIREBASE_CONFIG = window.FIREBASE_CONFIG || null;
 
 const APPS_SCRIPT_URL = 'TU_URL_DE_APPS_SCRIPT_AQUI';
-// El API_TOKEN ahora debe venir de firebase-config.js (si se usa Apps Script)
-const API_TOKEN = FIREBASE_CONFIG ? FIREBASE_CONFIG.apiToken : 'TOKEN_NO_CONFIGURADO';
+// El API_TOKEN ahora debe venir de firebase-config.js o usamos el valor por defecto de Google Apps Script
+const API_TOKEN = (FIREBASE_CONFIG && FIREBASE_CONFIG.apiToken) ? FIREBASE_CONFIG.apiToken : 'pamora_secreto_2026';
 
 // Seguridad para Rentabilidad
 let isRentabilidadAuth = false;
@@ -41,9 +42,9 @@ function clearSession() {
 }
 
 // ─── FIREBASE CONFIG ────────────────────────────────────────
-// La configuración se carga desde firebase-config.js (archivo local, NO en GitHub).
-// Si no existe ese archivo, la app avisará que falta configuración.
-const FIREBASE_CONFIG = window.FIREBASE_CONFIG || null;
+// (Movido al inicio para evitar errores de inicialización)
+
+
 
 
 // ─── ANIMALES DEL HATO ──────────────────────────────────────
