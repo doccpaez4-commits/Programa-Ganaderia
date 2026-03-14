@@ -54,6 +54,11 @@
   <!-- Toast Notifications -->
   <div id="toast-container" class="toast-container"></div>
 
+  <!-- Offline Banner -->
+  <div id="offline-banner" style="display:none;">
+    <span>&#x1F4E1; Sin conexión &mdash; Los datos se guardarán cuando vuelva la señal</span>
+  </div>
+
   <!-- Loading Overlay -->
   <div id="loading-overlay" class="loading-overlay">
     <div class="loading-content">
@@ -1924,6 +1929,16 @@
     </div>
   </div>
 
+  <!-- Registrar Service Worker para soporte offline -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(() => console.log('📡 Service Worker registrado (soporte offline activo)'))
+          .catch(err => console.warn('⚠️ Service Worker no pudo registrarse:', err));
+      });
+    }
+  </script>
 </body>
 
 </html>

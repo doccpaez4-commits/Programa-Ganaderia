@@ -71,6 +71,24 @@ let auth = null;
 let currentUser = null;
 let isDemo = false;
 
+// ─── OFFLINE SUPPORT ────────────────────────────────────────
+function initOfflineDetector() {
+    const banner = document.getElementById('offline-banner');
+    if (!banner) return;
+
+    const updateStatus = () => {
+        if (navigator.onLine) {
+            banner.style.display = 'none';
+        } else {
+            banner.style.display = 'block';
+        }
+    };
+
+    window.addEventListener('online', updateStatus);
+    window.addEventListener('offline', updateStatus);
+    updateStatus(); // Initial check
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     initFirebase();
     initNavigation();
@@ -133,6 +151,18 @@ function initFirebase() {
         firebase.initializeApp(FIREBASE_CONFIG);
         db = firebase.firestore();
         auth = firebase.auth();
+
+        // Enable Firestore Offline Persistence
+        db.enablePersistence({ synchronizeTabs: true })
+            .then(() => console.log('📦 Firestore persistence enabled (Offline support ready)'))
+            .catch(err => {
+                if (err.code === 'failed-precondition') {
+                    console.warn('⚠️ Multiple tabs open, persistence can only be enabled in one tab at a time.');
+                } else if (err.code === 'unimplemented') {
+                    console.warn('⚠️ The current browser does not support all of the features required to enable persistence.');
+                }
+            });
+
         console.log('🔥 Firebase Auth + Firestore initialized');
 
         // Listen for auth state changes — this is the main entry point
@@ -154,6 +184,9 @@ function initFirebase() {
                 }
             }
         });
+
+        // Monitor connection status for the UI banner
+        initOfflineDetector();
     } else {
         // No Firebase config — run in demo mode
         isDemo = true;
