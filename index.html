@@ -1891,6 +1891,39 @@
     </div>
   </div>
 
+  <!-- Modal: Confirmacion de Ordeno -->
+  <div id="modal-ordeno-confirm" class="modal-pamora-overlay" style="display:none;">
+    <div class="modal-pamora-content" style="max-width:480px;">
+      <div style="text-align:center; margin-bottom:16px;">
+        <div style="font-size:2.5rem;">🥛</div>
+        <h3 style="margin:0; color:var(--text-main); font-weight:800;">Confirmar Ordeno</h3>
+        <p id="ordeno-confirm-fecha" style="color:var(--text-muted); font-size:0.92rem; margin:4px 0 0;"></p>
+        <p id="ordeno-confirm-potrero" style="color:var(--text-accent); font-size:0.82rem; margin:2px 0 0; font-weight:600;"></p>
+      </div>
+      <table style="width:100%; border-collapse:collapse; background:var(--glass-bg); border-radius:12px; overflow:hidden; border:1px solid var(--glass-border); margin-bottom:16px;">
+        <thead><tr style="background:var(--primary-gradient); color:white;">
+          <th style="padding:10px 12px; text-align:left; font-size:0.85rem; font-weight:700;">🐄 Animal</th>
+          <th style="padding:10px 12px; text-align:right; font-size:0.85rem; font-weight:700;">Litros</th>
+        </tr></thead>
+        <tbody id="ordeno-confirm-tbody"></tbody>
+        <tfoot><tr style="background:rgba(30,107,60,0.07); border-top:2px solid var(--glass-border);">
+          <td style="padding:12px; font-weight:800; font-size:1rem;">Total</td>
+          <td style="padding:12px; text-align:right; font-weight:800; font-size:1.2rem; color:var(--primary-color);">
+            <span id="ordeno-confirm-total">0</span> L
+          </td>
+        </tr></tfoot>
+      </table>
+      <div style="display:grid; gap:10px;">
+        <button class="btn-pamora" id="btn-confirmar-ordeno" onclick="confirmarYGuardarOrdeno()"
+          style="background:linear-gradient(135deg,#16a34a,#15803d); font-size:1rem;">✅ Confirmar y Guardar</button>
+        <button class="btn-pamora" onclick="closeOrdenoConfirmModal()"
+          style="background:linear-gradient(135deg,#f59e0b,#d97706); font-size:1rem;">✏️ Corregir datos</button>
+        <button class="btn-pamora" onclick="closeOrdenoConfirmModal()"
+          style="background:#e2e8f0; color:#475569; box-shadow:none; font-size:1rem;">❌ Cancelar</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 
 </html>

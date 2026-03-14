@@ -24,6 +24,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validar secretos de Firebase
+        env:
+          FB_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FB_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+          FB_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+        run: |
+          missing=""
+          [ -z "$FB_API_KEY" ] && missing="$missing FIREBASE_API_KEY"
+          [ -z "$FB_AUTH_DOMAIN" ] && missing="$missing FIREBASE_AUTH_DOMAIN"
+          [ -z "$FB_PROJECT_ID" ] && missing="$missing FIREBASE_PROJECT_ID"
+          if [ -n "$missing" ]; then
+            echo "ERROR: Los siguientes secretos faltan en GitHub:$missing"
+            echo "Ve a Settings -> Secrets and variables -> Actions en tu repositorio."
+            exit 1
+          fi
+          echo "Secretos de Firebase validados correctamente."
+          echo "Dominio de auth: $FB_AUTH_DOMAIN"
+
       - name: Inyectar Firebase config en index.html
         env:
           FB_API_KEY: ${{ secrets.FIREBASE_API_KEY }}

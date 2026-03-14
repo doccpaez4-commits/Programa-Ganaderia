@@ -218,6 +218,13 @@ function initFormListeners() {
         setDirty(true);
     });
 
+    // Prevent scroll/wheel from accidentally changing number input values (critical for milk entry on mobile/touchpad)
+    document.addEventListener('wheel', function (e) {
+        if (document.activeElement && document.activeElement.type === 'number') {
+            document.activeElement.blur();
+        }
+    }, { passive: true });
+
     // Browser-level protection (refreshes, closing tab)
     window.addEventListener('beforeunload', (e) => {
         if (hasUnsavedChanges) {
@@ -289,8 +296,9 @@ function handleLogin(e) {
     btn.innerHTML = '<span class="spinner"></span> Verificando...';
 
     if (auth) {
-        // Firebase Authentication
-        auth.signInWithEmailAndPassword(email, pass)
+        // Isolate auth state to this browser tab only — prevents cross-user session conflicts
+        auth.setPersistence(firebase.auth.Auth.Persistence.SESSION)
+            .then(() => auth.signInWithEmailAndPassword(email, pass))
             .then(() => {
                 saveSession(email);
                 showToast('¡Bienvenido!', 'success');
@@ -300,9 +308,10 @@ function handleLogin(e) {
                     'auth/user-not-found': 'Usuario no encontrado',
                     'auth/wrong-password': 'Contraseña incorrecta',
                     'auth/invalid-email': 'Correo inválido',
+                    'auth/invalid-credential': 'Credenciales incorrectas',
                     'auth/too-many-requests': 'Demasiados intentos. Espera un momento.'
                 };
-                errorEl.textContent = messages[err.code] || 'Error de autenticación';
+                errorEl.textContent = messages[err.code] || 'Error de autenticación (' + err.code + ')';
                 errorEl.style.display = 'block';
                 btn.disabled = false;
                 btn.innerHTML = '🔓 Ingresar';
@@ -3620,7 +3629,8 @@ function closeAllModals() {
         'modal-import-excel',
         'modal-edit-vacunacion',
         'modal-edit-inseminacion',
-        'modal-edit-nacimiento'
+        'modal-edit-nacimiento',
+        'modal-ordeno-confirm'
     ].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
@@ -4265,9 +4275,58 @@ async function handleOrdeno(e) {
         token: API_TOKEN
     };
 
+    // Show confirmation modal instead of saving directly
+    showOrdenoConfirmModal(payload, lactantes);
+}
+
+// Stored payload waiting for user confirmation
+let _pendingOrdenoPayload = null;
+
+function showOrdenoConfirmModal(payload, lactantes) {
+    _pendingOrdenoPayload = payload;
+
+    // Build summary table rows
+    const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const fechaDisplay = (() => {
+        const parts = payload.fecha.split('-');
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    })();
+
+    document.getElementById('ordeno-confirm-fecha').textContent = `${fechaDisplay} — ${payload.horario === 'AM' ? '☀️ Mañana' : '🌙 Tarde'}`;
+    document.getElementById('ordeno-confirm-potrero').textContent = payload.potrero || 'Sin especificar';
+
+    const tbody = document.getElementById('ordeno-confirm-tbody');
+    let rows = '';
+    Object.entries(payload.litros).forEach(([nombre, val]) => {
+        const emoji = getAnimalEmoji(nombre);
+        const color = val > 0 ? 'color:#16a34a; font-weight:700;' : 'color:#94a3b8;';
+        const display = val > 0 ? `${val.toFixed(1)} L` : '— (sin ordeño)';
+        rows += `<tr>
+          <td style="padding:8px 12px;">${emoji} ${nombre}</td>
+          <td style="padding:8px 12px; text-align:right; ${color}">${display}</td>
+        </tr>`;
+    });
+    tbody.innerHTML = rows;
+
+    document.getElementById('ordeno-confirm-total').textContent = payload.total.toFixed(1);
+
+    document.getElementById('modal-ordeno-confirm').style.display = 'flex';
+}
+
+function closeOrdenoConfirmModal() {
+    document.getElementById('modal-ordeno-confirm').style.display = 'none';
+    _pendingOrdenoPayload = null;
+}
+
+async function confirmarYGuardarOrdeno() {
+    if (!_pendingOrdenoPayload) return;
+    const payload = _pendingOrdenoPayload;
+    _pendingOrdenoPayload = null;
+    document.getElementById('modal-ordeno-confirm').style.display = 'none';
     const btn = document.getElementById('ordeno-submit-btn');
     await saveToCloud(payload, btn, 'ordeno-success', 'ordeno-form');
 }
+
 
 
 // ─── REGISTROS TAB: SELECTORS + DATA LOADER ──────────────────────────────────
