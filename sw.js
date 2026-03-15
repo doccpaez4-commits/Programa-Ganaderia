@@ -2,7 +2,7 @@
 // Caches the app shell so the app loads without internet.
 // Uses Cache-First for shell assets, Network-First for API calls.
 
-const CACHE_NAME = 'pamora-v1';
+const CACHE_NAME = 'pamora-v2';
 const SHELL_ASSETS = [
     './',
     './index.html',

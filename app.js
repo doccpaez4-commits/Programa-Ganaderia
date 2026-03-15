@@ -168,15 +168,22 @@ function initFirebase() {
         // Listen for auth state changes — this is the main entry point
         auth.onAuthStateChanged(user => {
             if (user) {
+                // If a different user logged in on another tab, reload to sync
+                if (currentUser && currentUser.name !== user.email) {
+                    location.reload();
+                    return;
+                }
                 // Logged in via Firebase
                 bootApp(user.email);
             } else {
-                // Check for local session fallback
-                const sessionUser = loadSession();
-                if (sessionUser) {
-                    bootApp(sessionUser);
-                } else if (!db) {
-                    // Demo mode if no backend configured
+                // If we were in a session and auth is gone, clear it and show login
+                if (currentUser && !isDemo) {
+                    handleLogout();
+                    return;
+                }
+                
+                // Demo mode fallback only if no database (or if explicitly requested)
+                if (!db) {
                     isDemo = true;
                     bootApp('Demo');
                 } else {
@@ -333,8 +340,8 @@ function handleLogin(e) {
     btn.innerHTML = '<span class="spinner"></span> Verificando...';
 
     if (auth) {
-        // Isolate auth state to this browser tab only — prevents cross-user session conflicts
-        auth.setPersistence(firebase.auth.Auth.Persistence.SESSION)
+        // Use LOCAL persistence so login survives tab close (important for mobile & offline)
+        auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
             .then(() => auth.signInWithEmailAndPassword(email, pass))
             .then(() => {
                 saveSession(email);
